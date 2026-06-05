@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+package-lock.json
+npm-debug.log*
+
+# Build / runtime artifacts
+dist/
+build/
+*.log
+.DS_Store
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor
+.vscode/
+.idea/
+
+# Generated single-creature exports (the curated gallery IS committed)
+docs/assets/lumi-LUMI-*.svg

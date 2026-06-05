@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    name: Core tests + lint + schema validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The game core has ZERO runtime dependencies, so tests run with no install.
+      - name: Run game-core test suite
+        run: node --test test/*.test.js
+
+      - name: Syntax-check every source file
+        run: |
+          set -e
+          for f in core/*.js server/*.js server/scripts/*.js web/*.js tools/*.js test/*.js; do
+            node --check "$f"
+          done
+
+      # Validate the production SQL schema against an embedded Postgres (PGlite).
+      - name: Validate db/schema.sql
+        run: |
+          npm install --no-save @electric-sql/pglite
+          node --input-type=module -e '
+            import { PGlite } from "@electric-sql/pglite";
+            import { citext } from "@electric-sql/pglite/contrib/citext";
+            import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
+            import { readFileSync } from "node:fs";
+            const db = await PGlite.create({ extensions: { citext, pg_trgm } });
+            await db.exec(readFileSync("db/schema.sql","utf8"));
+            const t = await db.query("select count(*)::int n from pg_tables where schemaname=$1",["public"]);
+            console.log("schema OK,", t.rows[0].n, "tables");
+          '
+
+      - name: Generate Lumi gallery (smoke test for the generative pipeline)
+        run: node tools/render-svg.js
