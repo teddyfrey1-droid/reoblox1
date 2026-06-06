@@ -68,6 +68,7 @@ export function createApp(store = new MemoryStore(), opts = {}) {
   const auth = createAuth(opts.secret || process.env.JWT_SIGNING_KEY);
   const requireAuth = !!opts.requireAuth;
   const iap = createIapVerifier({ testSecret: opts.iapTestSecret || process.env.IAP_TEST_SECRET });
+  const rt = opts.realtime || null; // optional real-time hub (no-op if absent)
 
   /** @type {Array<{method:string, re:RegExp, fn:Function, requiresSelf:boolean}>} */
   const routes = [];
@@ -91,6 +92,8 @@ export function createApp(store = new MemoryStore(), opts = {}) {
     for (const u of xp.unlocked) if (u.feature in player.unlocks) player.unlocks[u.feature] = true;
     const passRes = addPassXp(player.pass, xpGain);
     await store.contributeBloom(player, 1 + rarityRank(lumi.rarity));
+    // Live Great-Bloom tick to all connected clients (the shared-world meta moving).
+    if (rt) rt.broadcastWorld({ bloomLevel: store.world.bloomLevel, totalLumiHatched: store.world.totalLumiHatched });
     return { unlocked: xp.unlocked, pass: passView(player.pass), tiersGained: passRes.tiersGained };
   }
 
@@ -294,6 +297,8 @@ export function createApp(store = new MemoryStore(), opts = {}) {
       throw new HttpError(400, 'BAD_VISIT', 'Pick a neighbour other than yourself');
     }
     const target = await store.getPlayer(body.targetId); // 404 if no such player
+    // Live ping to the visited neighbour (if they're online), regardless of reward.
+    if (rt) rt.notify(body.targetId, { type: 'visit', from: player.handle });
     const today = dayIndex(Date.now());
     if (!player.visitLog || player.visitLog.day !== today) player.visitLog = { day: today, ids: [] };
     // The reward is capped two ways so it can't be farmed: once per neighbour per UTC

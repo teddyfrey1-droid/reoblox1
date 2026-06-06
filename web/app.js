@@ -76,6 +76,31 @@ async function boot() {
   setupDailyButton();
   await Promise.all([loadGarden(), loadCollection(), loadWorld()]);
   startClock();
+  setupRealtime();
+}
+
+/* ----------------------------- realtime (WS) ----------------------------- */
+// Optional live updates: the shared Great Bloom bar moves in real time and a toast
+// pops when a neighbour visits you. Entirely non-fatal — if WS is unavailable the
+// REST-driven prototype works exactly as before.
+function setupRealtime() {
+  if (!('WebSocket' in window) || !state.token) return;
+  try {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(state.token)}`);
+    ws.addEventListener('message', (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      if (m.type === 'world') {
+        const pct = Math.round(m.bloomLevel);
+        const fill = $('#bloom-fill'); if (fill) fill.style.width = pct + '%';
+        const label = $('#bloom-label'); if (label) label.textContent = `Great Bloom ${pct}% · ${fmt(m.totalLumiHatched)} Lumi hatched worldwide`;
+      } else if (m.type === 'visit') {
+        toast(`🌸 ${m.from} visited your garden!`);
+      }
+    });
+    ws.addEventListener('error', () => { /* realtime is optional; ignore */ });
+    state.ws = ws;
+  } catch { /* realtime is optional */ }
 }
 
 function syncHeader() {

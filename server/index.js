@@ -11,9 +11,11 @@
  */
 
 import { createServer } from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { createApp } from './api.js';
 import { MemoryStore } from './store.js';
 import { seedDemoWorld } from './scripts/demo.js';
+import { createRealtime } from './realtime.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 
@@ -37,16 +39,21 @@ if (process.env.DATABASE_URL) {
 
 // Auth is enforced in the running server. Set JWT_SIGNING_KEY so tokens survive
 // restarts and span instances; without it we use a random per-process key (dev only).
+// The SAME key signs/verifies both REST tokens and WebSocket (/ws?token=) auth.
 if (!process.env.JWT_SIGNING_KEY) {
   console.warn('  ⚠ JWT_SIGNING_KEY not set — using an ephemeral key (tokens reset on restart).');
 }
-const server = createServer(createApp(store, { requireAuth: true, secret: process.env.JWT_SIGNING_KEY }));
+const secret = process.env.JWT_SIGNING_KEY || randomBytes(32).toString('hex');
+const realtime = createRealtime({ secret });
+const server = createServer(createApp(store, { requireAuth: true, secret, realtime }));
+await realtime.attach(server);
 
 server.listen(PORT, () => {
   console.log('\n  🌱 LUMORA dev server');
   console.log(`  ─ API + prototype:  http://localhost:${PORT}`);
   console.log(`  ─ Try the generator: http://localhost:${PORT}/api/preview/lumi?biome=nocturne`);
   console.log('  ─ Auth:             Bearer tokens required on per-account routes');
+  console.log(`  ─ Real-time:        ${realtime.enabled ? `ws://localhost:${PORT}/ws?token=…` : 'disabled (ws not installed)'}`);
   process.stdout.write(demoNote + '\n');
 });
 
