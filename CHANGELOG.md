@@ -2,6 +2,30 @@
 
 All notable changes to the LUMORA prototype are documented here.
 
+## [0.4.0] — Authentication (closes the open-API security gap)
+
+### Added
+- **Signed session tokens** (`server/auth.js`): dependency-free HS256 JWTs via
+  `node:crypto` — `sign`/`verify` with expiry and constant-time signature check.
+- **Anonymous/guest auth** (`POST /api/auth/guest`): a device gets (or recovers) its
+  player + a fresh token; returning devices pass their `deviceId` to get the same
+  account. Backed by the existing `auth_identities` table (persisted in the PgStore
+  unit of work). `POST /api/players` also returns a token.
+- **Authorization rule**: every per-account route (any path with a player `:id`)
+  requires a Bearer token whose `sub` equals that id — a client can only act on its
+  own account (401 without a token, 403 for another account). `createApp(store, {
+  requireAuth, secret })`; the running server (`server/index.js`) enables it and reads
+  `JWT_SIGNING_KEY` (random per-process fallback with a warning in dev).
+- Store identity methods (`linkIdentity`/`getPlayerByIdentity`) on both `MemoryStore`
+  and `PgStore`; CORS now allows the `Authorization` header.
+- Web prototype authenticates automatically via the guest flow and sends the Bearer
+  token on every request (verified end-to-end in a headless browser, no errors).
+
+### Tests
+- `test/auth.test.js` (7): token sign/verify (tamper/expiry/wrong-secret), public
+  routes need no token, 401/403 enforcement, and guest-device account recovery.
+  Suite: 70 → **77**, all green.
+
 ## [0.3.1] — Production hardening (publish-ready)
 
 A bug-hunt + multi-angle code review pass on the public API and core logic.

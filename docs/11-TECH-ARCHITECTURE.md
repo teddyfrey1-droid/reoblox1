@@ -150,7 +150,11 @@ pour les deux (`server/store.js` choisi par défaut, `server/pgStore.js` si `DAT
 ## Dette technique connue du prototype (assumée)
 
 - ~~Store en mémoire (pas de durabilité)~~ → **fait** : `PgStore` relationnel + test de durabilité.
-- Auth stub (id en chemin) → à remplacer par des jetons signés.
+- ~~Auth stub (id en chemin)~~ → **fait** : sessions par **jetons signés HS256** (`server/auth.js`,
+  `node:crypto`, zéro dépendance) + flux **invité par appareil** (`POST /api/auth/guest`,
+  table `auth_identities`). Règle d'autorisation : toute route portant un `:id` exige un jeton
+  dont le `sub` égale cet id → on n'agit que sur **son** compte (401 sans jeton, 403 sinon).
+  *À venir* : providers Apple/Google (même table), rotation de clé, refresh tokens.
 - `commit` réécrit la collection d'un joueur par DELETE+INSERT (simple et correct ; à rendre
   incrémental pour de très grandes collections en production).
 - Compteur mondial (Great Bloom) **et** plafond quotidien de visites en mémoire de processus

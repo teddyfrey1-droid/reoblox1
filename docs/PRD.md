@@ -36,7 +36,8 @@ complète sans blocage, signaux de rétention interne encourageants.
 - **Critères d'acceptation :**
   - ✅ Création de compte par *handle* validé (3–20 caractères mot). `POST /api/players`.
   - ✅ Don de départ : 300 🌸, 50 ✦, **2 Lumi de départ** (`server/store.js`).
-  - ⬜ Auth réelle (Apple/Google/device) + cross-device.
+  - ✅ **Auth par jetons signés** (HS256) + flux **invité par appareil** (`/api/auth/guest`) ; routes par compte protégées (401/403) — testé.
+  - ⬜ Providers Apple/Google + cross-device explicite (mêmes jetons, table `auth_identities`).
   - ⬜ Tutoriel scénarisé (1ʳᵉ plantation → éclosion → nommage).
 
 ### EF-2 — Boucle de jardin
@@ -139,3 +140,4 @@ complète sans blocage, signaux de rétention interne encourageants.
 | EF-6/EF-7 rétention/progression | `core/progression.js`, `core/content.js` | `test/progression.test.js` |
 | EF-8 social / échanges | `server/store.js`, `core/trade.js`, `server/api.js` | `test/trade.test.js`, `test/api.test.js` |
 | Persistance durable (PostgreSQL) | `server/pgStore.js`, `server/db.js`, `db/schema.sql` | `test/pgstore.test.js` (durabilité) |
+| EF-1 authentification (jetons + invité) | `server/auth.js`, `server/api.js` (middleware self) | `test/auth.test.js` |
