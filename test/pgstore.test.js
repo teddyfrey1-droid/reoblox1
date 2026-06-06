@@ -67,6 +67,14 @@ if (!PGlite) {
     assert.equal(dup.status, 409);
   });
 
+  test('a malformed id is a clean 404, not a Postgres 500 (store parity)', async () => {
+    assert.equal((await api('/api/players/not-a-uuid')).status, 404);
+    assert.equal((await api('/api/players/not-a-uuid/collection')).status, 404);
+    // A non-UUID body field must also 404, not 500.
+    const p = (await api('/api/players', 'POST', { handle: 'pg_baduuid' })).data.player;
+    assert.equal((await api(`/api/players/${p.id}/visit`, 'POST', { targetId: 'abc' })).status, 404);
+  });
+
   test('daily + quests + bloomdex + breeding persist', async () => {
     const id = (await api('/api/players', 'POST', { handle: 'pg_bob' })).data.player.id;
     assert.equal((await api(`/api/players/${id}/daily`, 'POST')).data.claimed, true);

@@ -233,6 +233,7 @@ export function newPlayer(id, handle) {
     pass: createPassState(),
     bloomdexClaimed: [],
     constellationId: null,
+    visitLog: { day: 0, ids: [] }, // once-per-day-per-neighbour visit reward cap
   };
 }
 

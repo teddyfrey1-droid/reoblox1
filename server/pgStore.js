@@ -33,6 +33,14 @@ import { levelFromXp } from '../core/progression.js';
 const num = (v) => (v == null ? 0 : Number(v));
 const err = (code, status, message) => Object.assign(new Error(message), { code, status });
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * A malformed id must read as "not found", never reach Postgres (where binding a
+ * non-UUID to a UUID column raises a 500). This keeps PgStore's error semantics
+ * identical to MemoryStore (clean 404) for garbage ids.
+ */
+const isUuid = (s) => typeof s === 'string' && UUID_RE.test(s);
+
 export class PgStore {
   /** @param {import('./db.js').Db} db */
   constructor(db) {
@@ -189,6 +197,7 @@ export class PgStore {
   async getConstellation(cid) {
     const ctx = this._ctx();
     if (ctx && ctx.cons.has(cid)) return ctx.cons.get(cid);
+    if (!isUuid(cid)) return null;
     const cr = await this.db.query('SELECT id, name, bloom_score FROM constellations WHERE id = $1', [cid]);
     if (!cr.rows.length) return null;
     const mr = await this.db.query(
@@ -221,6 +230,7 @@ export class PgStore {
   async getTrade(id) {
     const ctx = this._ctx();
     if (ctx && ctx.trades.has(id)) return ctx.trades.get(id);
+    if (!isUuid(id)) return null;
     const r = await this.db.query(
       'SELECT id, from_id, to_id, offer_lumi, offer_petals, request_lumi, status FROM trades WHERE id = $1',
       [id],
@@ -249,6 +259,7 @@ export class PgStore {
   /* ------------------------------- hydration ------------------------------- */
 
   async _loadPlayer(id) {
+    if (!isUuid(id)) return null; // garbage id → 404, not a Postgres uuid-syntax 500
     const pr = await this.db.query('SELECT id, handle, xp, flags FROM players WHERE id = $1', [id]);
     if (!pr.rows.length) return null;
     const row = pr.rows[0];
@@ -281,6 +292,7 @@ export class PgStore {
       pass: flags.pass || createPassState(),
       bloomdexClaimed: flags.bloomdexClaimed || [],
       constellationId: flags.constellationId ?? null,
+      visitLog: flags.visitLog || { day: 0, ids: [] },
     };
   }
 
@@ -316,7 +328,8 @@ export class PgStore {
     const lvl = levelFromXp(p.xp).level;
     const flags = {
       unlocks: p.unlocks, stats: p.stats, pity: p.pity, pass: p.pass,
-      bloomdexClaimed: p.bloomdexClaimed, constellationId: p.constellationId, createdAt: p.createdAt,
+      bloomdexClaimed: p.bloomdexClaimed, constellationId: p.constellationId,
+      visitLog: p.visitLog, createdAt: p.createdAt,
     };
     await q(
       `INSERT INTO players (id, handle, xp, keeper_level, flags) VALUES ($1, $2, $3, $4, $5::jsonb)

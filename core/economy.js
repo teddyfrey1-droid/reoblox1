@@ -19,6 +19,7 @@ export class EconomyError extends Error {
     super(message);
     this.name = 'EconomyError';
     this.code = code;
+    this.status = 400; // economy faults are always client errors (4xx), never 500
   }
 }
 

@@ -25,7 +25,7 @@ import { byId, BIOMES, PLANTS, DECOR, BLOOM_PASS } from '../core/content.js';
 import * as garden from '../core/garden.js';
 import { generateLumi, breedLumi, decodeSeedCode } from '../core/genome.js';
 import {
-  applyXp, levelFromXp, claimDaily, dailyQuests,
+  applyXp, levelFromXp, claimDaily, dailyQuests, dayIndex,
 } from '../core/progression.js';
 import { pityFloor, recordHatch } from '../core/luck.js';
 import { bloomdex, claimableMilestones } from '../core/bloomdex.js';
@@ -95,12 +95,19 @@ export function createApp(store = new MemoryStore()) {
   // Account-free Lumi preview: powers "try the generator" marketing & onboarding.
   route('GET', '/api/preview/lumi', (_p, _b, q) => {
     let seed = q.get('seed');
-    if (seed && /^LUMI-/i.test(seed)) seed = decodeSeedCode(seed);
+    if (seed && /^LUMI-/i.test(seed)) {
+      try {
+        seed = decodeSeedCode(seed);
+      } catch {
+        throw new HttpError(400, 'BAD_SEED_CODE', 'Malformed seed code');
+      }
+    }
     const ctx = {
       biome: q.get('biome') || undefined,
       season: q.get('season') || store.world.season,
-      bloomLevel: q.has('bloom') ? Number(q.get('bloom')) : store.world.bloomLevel,
-      careQuality: q.has('care') ? Number(q.get('care')) : 0.6,
+      // Sanitise numeric query params: a NaN must not poison the rarity roll.
+      bloomLevel: clampNum(q.get('bloom'), 0, 100, store.world.bloomLevel),
+      careQuality: clampNum(q.get('care'), 0, 1, 0.6),
     };
     const useSeed = seed != null ? seed : (Math.random() * 4294967296) >>> 0;
     return { lumi: generateLumi(useSeed, ctx) };
@@ -183,15 +190,21 @@ export function createApp(store = new MemoryStore()) {
   route('POST', '/api/players/:id/garden/plant', async (params, body) => {
     const player = await store.getPlayer(params.id);
     const plantId = body.plantId;
+    const plotIndex = Number(body.plotIndex);
     const def = byId.plant(plantId);
     if (!def) throw new HttpError(400, 'UNKNOWN_PLANT', 'No such seed');
-    // Planting consumes a seed: charge its price at plant time (the seed IS the cost).
+    // Validate the plot BEFORE charging so a rejected plant (bad/occupied plot)
+    // never debits the player for a seed that wasn't sown.
+    const plot = player.garden.plots[plotIndex];
+    if (!plot) throw new HttpError(400, 'BAD_PLOT', `No plot at index ${body.plotIndex}`);
+    if (plot.planting) throw new HttpError(400, 'PLOT_OCCUPIED', 'Plot is already occupied');
+    // The seed IS the cost; charge now that we know the plant will succeed.
     purchase(player.wallet, 'plant', plantId, player.ledger);
     const planting = garden.plant(
-      player.garden, Number(body.plotIndex), plantId,
+      player.garden, plotIndex, plantId,
       { season: store.world.season, bloomLevel: store.world.bloomLevel }, Date.now(),
     );
-    return { planted: { plotIndex: Number(body.plotIndex), readyAt: planting.readyAt }, wallet: player.wallet };
+    return { planted: { plotIndex, readyAt: planting.readyAt }, wallet: player.wallet };
   });
 
   route('POST', '/api/players/:id/garden/water', async (params, body) => {
@@ -241,9 +254,19 @@ export function createApp(store = new MemoryStore()) {
 
   route('POST', '/api/players/:id/visit', async (params, body) => {
     const player = await store.getPlayer(params.id);
-    const target = await store.getPlayer(body.targetId);
+    if (!body.targetId || body.targetId === player.id) {
+      throw new HttpError(400, 'BAD_VISIT', 'Pick a neighbour other than yourself');
+    }
+    const target = await store.getPlayer(body.targetId); // 404 if no such player
     player.stats.visits += 1;
-    // Visiting a neighbour grants a small "watering can" social reward (encourages it).
+    // The visit reward is capped to once per neighbour per UTC day, so it can't be
+    // farmed by spamming the endpoint (a real soft-currency faucet exploit otherwise).
+    const today = dayIndex(Date.now());
+    if (!player.visitLog || player.visitLog.day !== today) player.visitLog = { day: today, ids: [] };
+    if (player.visitLog.ids.includes(body.targetId)) {
+      return { visited: target.handle, reward: { petals: 0 }, alreadyVisitedToday: true };
+    }
+    player.visitLog.ids.push(body.targetId);
     grant(player.wallet, { petals: 25 }, 'social_visit', player.ledger);
     return { visited: target.handle, reward: { petals: 25 } };
   });
@@ -447,6 +470,14 @@ function rarityRank(r) { return RARITY_RANK[r] ?? 0; }
 /** Premium Bloom Pass price in Lumen (~the 9.99€ tier; tune via remote-config in prod). */
 const PASS_PREMIUM_COST = 800;
 
+/** Parse a query value to a number clamped to [min,max]; falls back to `dflt` on NaN. */
+function clampNum(raw, min, max, dflt) {
+  if (raw == null || raw === '') return dflt;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return dflt;
+  return Math.max(min, Math.min(max, n));
+}
+
 function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -463,21 +494,38 @@ function sendJson(res, status, obj) {
 }
 
 function sendError(res, err) {
-  const status = err.status || (err instanceof EconomyError ? 400 : 500);
+  // Typed domain errors (HttpError, EconomyError, GameError) all carry a `status`;
+  // anything else is a genuine server fault → 500 (and logged for on-call).
+  const status = err.status || 500;
   const code = err.code || 'INTERNAL';
   if (status >= 500) console.error('[api] 500', err);
-  sendJson(res, status, { error: { code, message: err.message } });
+  const message = status >= 500 ? 'Internal error' : err.message; // don't leak internals on 5xx
+  sendJson(res, status, { error: { code, message } });
 }
+
+/** Max accepted request body. Guards against unbounded-body memory exhaustion. */
+const MAX_BODY_BYTES = 512 * 1024;
 
 async function readJson(req) {
   const chunks = [];
-  for await (const c of req) chunks.push(c);
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    if (size > MAX_BODY_BYTES) throw new HttpError(413, 'BODY_TOO_LARGE', 'Request body too large');
+    chunks.push(c);
+  }
   if (!chunks.length) return {};
+  let parsed;
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } catch {
     throw new HttpError(400, 'BAD_JSON', 'Request body is not valid JSON');
   }
+  // Bodies must be JSON objects; reject arrays/scalars so `body.field` is always safe.
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new HttpError(400, 'BAD_BODY', 'Request body must be a JSON object');
+  }
+  return parsed;
 }
 
 /** Serve files from /web (default) and /core, with path-traversal protection. */

@@ -32,6 +32,13 @@ export function tradeTax(t) {
  * @param {{offerLumi?:string[], offerPetals?:number, requestLumi?:string[]}} t
  */
 export function validateTrade(from, to, t) {
+  // Type guards: a malformed offer must be a clean 4xx, never iterate a string as
+  // if it were a list of Lumi ids.
+  if (t.offerLumi != null && !Array.isArray(t.offerLumi)) throw new EconomyError('BAD_OFFER', 'offerLumi must be an array');
+  if (t.requestLumi != null && !Array.isArray(t.requestLumi)) throw new EconomyError('BAD_OFFER', 'requestLumi must be an array');
+  if (t.offerPetals != null && (!Number.isInteger(t.offerPetals) || t.offerPetals < 0)) {
+    throw new EconomyError('BAD_OFFER', 'offerPetals must be a non-negative integer');
+  }
   const offerLumi = t.offerLumi || [];
   const requestLumi = t.requestLumi || [];
   const offerPetals = t.offerPetals || 0;

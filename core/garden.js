@@ -13,6 +13,7 @@
 import { byId } from './content.js';
 import { generateLumi } from './genome.js';
 import { mixSeeds, hashString } from './rng.js';
+import { GameError } from './errors.js';
 
 /**
  * @typedef {Object} Plot
@@ -46,10 +47,10 @@ export function createGarden(biomeId = 'meadow', plots = 2) {
  */
 export function plant(garden, plotIndex, plantId, world, nowMs) {
   const plot = garden.plots[plotIndex];
-  if (!plot) throw new Error(`No plot at index ${plotIndex}`);
-  if (plot.planting) throw new Error('Plot is already occupied');
+  if (!plot) throw new GameError('BAD_PLOT', `No plot at index ${plotIndex}`);
+  if (plot.planting) throw new GameError('PLOT_OCCUPIED', 'Plot is already occupied');
   const def = byId.plant(plantId);
-  if (!def) throw new Error(`Unknown plant "${plantId}"`);
+  if (!def) throw new GameError('UNKNOWN_PLANT', `Unknown plant "${plantId}"`);
 
   const readyAt = nowMs + def.growMinutes * 60 * 1000;
   // The Lumi seed is fixed at PLANT time from stable inputs, so growth duration and
@@ -87,7 +88,8 @@ export function plant(garden, plotIndex, plantId, world, nowMs) {
  */
 export function water(garden, plotIndex, nowMs) {
   const plot = garden.plots[plotIndex];
-  if (!plot || !plot.planting) throw new Error('Nothing planted here');
+  if (!plot) throw new GameError('BAD_PLOT', `No plot at index ${plotIndex}`);
+  if (!plot.planting) throw new GameError('EMPTY_PLOT', 'Nothing planted here');
   const p = plot.planting;
   if (p.watered >= 3) return { watered: p.watered, readyAt: p.readyAt }; // cap reached
   p.watered += 1;
@@ -114,9 +116,10 @@ export function isReady(planting, nowMs) {
  */
 export function harvest(garden, plotIndex, nowMs, extra = {}) {
   const plot = garden.plots[plotIndex];
-  if (!plot || !plot.planting) throw new Error('Nothing planted here');
+  if (!plot) throw new GameError('BAD_PLOT', `No plot at index ${plotIndex}`);
+  if (!plot.planting) throw new GameError('EMPTY_PLOT', 'Nothing planted here');
   const p = plot.planting;
-  if (!isReady(p, nowMs)) throw new Error('Not ready to harvest yet');
+  if (!isReady(p, nowMs)) throw new GameError('NOT_READY', 'Not ready to harvest yet');
 
   // careQuality blends watering effort with the garden's overall bloom.
   const careQuality = Math.min(1, 0.35 + p.watered * 0.18 + garden.bloom / 300);
