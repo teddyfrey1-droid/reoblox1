@@ -37,10 +37,21 @@ export function svgLumi(g, size = 180) {
   const pal = s.palette;
   const R = size * 0.3 * s.body.size;
   const cx = size / 2;
-  const cy = size / 2 + 6;
+  const cy = size / 2 + 6 - R * (s.body.hover || 0); // floaters hover higher
+  const app = s.appendages || {};
   const id = g.seed.toString(36);
   let defs = '';
   let body = '';
+
+  // Form-distinct appendages drawn BEHIND the body (mirrors web/lumi-render.js).
+  if (app.wings) for (const side of [-1, 1]) body += `<ellipse cx="${(cx + side * R * 0.9).toFixed(1)}" cy="${(cy - R * 0.1).toFixed(1)}" rx="${(R * 0.45).toFixed(1)}" ry="${(R * 0.28).toFixed(1)}" transform="rotate(${side * 30} ${(cx + side * R * 0.9).toFixed(1)} ${(cy - R * 0.1).toFixed(1)})" fill="${pal.accent}" opacity="0.6"/>`;
+  if (app.ears) for (const side of [-1, 1]) body += `<ellipse cx="${(cx + side * R * 0.5).toFixed(1)}" cy="${(cy - R * 0.85).toFixed(1)}" rx="${(R * 0.22).toFixed(1)}" ry="${(R * 0.3).toFixed(1)}" fill="${pal.primary}"/>`;
+  if (app.fins) {
+    for (const side of [-1, 1]) body += `<path d="M${cx + side * R * 0.7} ${cy + R * 0.05} Q${cx + side * R * 1.35} ${cy - R * 0.15} ${cx + side * R * 1.2} ${cy + R * 0.5} Q${cx + side * R} ${cy + R * 0.25} ${cx + side * R * 0.7} ${cy + R * 0.35} Z" fill="${pal.accent}"/>`;
+    body += `<path d="M${cx} ${cy + R * 0.85} Q${cx - R * 0.4} ${cy + R * 1.3} ${cx - R * 0.5} ${cy + R * 1.15} Q${cx} ${cy + R * 0.95} ${cx + R * 0.5} ${cy + R * 1.15} Q${cx + R * 0.4} ${cy + R * 1.3} ${cx} ${cy + R * 0.85} Z" fill="${pal.accent}"/>`;
+  }
+  if (app.antenna) body += `<path d="M${cx} ${cy - R * 0.85} Q${cx + R * 0.2} ${cy - R * 1.25} ${cx + R * 0.3} ${cy - R * 1.4}" stroke="${pal.secondary}" stroke-width="${(R * 0.05).toFixed(1)}" fill="none" stroke-linecap="round"/><circle cx="${(cx + R * 0.3).toFixed(1)}" cy="${(cy - R * 1.42).toFixed(1)}" r="${(R * 0.08).toFixed(1)}" fill="#fff2a8"/>`;
+  if (app.leaf) body += `<path d="M${cx} ${cy - R * 0.8} L${cx} ${cy - R * 1.2}" stroke="#7bbf6a" stroke-width="${(R * 0.08).toFixed(1)}" stroke-linecap="round"/>` + [-1, 1].map((side) => `<ellipse cx="${(cx + side * R * 0.16).toFixed(1)}" cy="${(cy - R * 1.22).toFixed(1)}" rx="${(R * 0.18).toFixed(1)}" ry="${(R * 0.1).toFixed(1)}" transform="rotate(${side * -34} ${(cx + side * R * 0.16).toFixed(1)} ${(cy - R * 1.22).toFixed(1)})" fill="#8fd17a"/>`).join('');
 
   // Aura
   if (s.aura.glow > 0.02) {
@@ -73,6 +84,9 @@ export function svgLumi(g, size = 180) {
 
   // Belly
   body += `<ellipse cx="${cx}" cy="${(cy + R * 0.28).toFixed(1)}" rx="${(R * 0.55).toFixed(1)}" ry="${(R * 0.45).toFixed(1)}" fill="${pal.belly}" opacity="0.9"/>`;
+
+  // Arms (tiny, in front — bipedal tots)
+  if (app.arms) for (const side of [-1, 1]) body += `<ellipse cx="${(cx + side * R * 0.85).toFixed(1)}" cy="${(cy + R * 0.15).toFixed(1)}" rx="${(R * 0.12).toFixed(1)}" ry="${(R * 0.18).toFixed(1)}" transform="rotate(${side * 23} ${(cx + side * R * 0.85).toFixed(1)} ${(cy + R * 0.15).toFixed(1)})" fill="${pal.secondary}"/>`;
 
   // Pattern (clipped to body)
   defs += `<clipPath id="clip${id}"><path d="${blobPath(cx, cy, R, 0.02, 'rounded')}"/></clipPath>`;

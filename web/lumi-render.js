@@ -25,7 +25,9 @@ export function drawLumi(ctx, genome, { x, y, r, t }) {
   // Idle motion: gentle vertical bob + slight squash/stretch.
   const bob = Math.sin(t / 650) * R * 0.05;
   const squash = 1 + Math.sin(t / 650) * 0.03;
-  const cy = y + bob;
+  const app = spec.appendages || {};
+  // Floaters hover higher; floaters/finlings bob a touch more for "weightlessness".
+  const cy = y + bob - R * (spec.body.hover || 0);
 
   ctx.save();
   ctx.translate(x, cy);
@@ -44,6 +46,13 @@ export function drawLumi(ctx, genome, { x, y, r, t }) {
     ctx.fill();
   }
 
+  // --- Appendages drawn BEHIND the body (form silhouette) ---
+  if (app.wings) drawWings(ctx, R, pal.accent, t);
+  if (app.ears) drawEars(ctx, R, pal.primary, pal.belly);
+  if (app.leaf) drawLeaf(ctx, R, t);
+  if (app.fins) drawFins(ctx, R, pal.accent, t);
+  if (app.antenna) drawAntenna(ctx, R, pal.secondary, t);
+
   // --- Legs (drawn behind the body) ---
   if (spec.body.legs > 0) drawLegs(ctx, R, spec.body.legs, pal.secondary, t);
 
@@ -52,7 +61,7 @@ export function drawLumi(ctx, genome, { x, y, r, t }) {
 
   // --- Body ---
   ctx.save();
-  ctx.scale(1 / squash, squash);
+  ctx.scale((1 / squash) * (spec.body.elongate || 1), squash);
   const bodyFill = pal.aurora
     ? auroraGradient(ctx, R, pal.aurora, t)
     : pal.primary;
@@ -90,6 +99,9 @@ export function drawLumi(ctx, genome, { x, y, r, t }) {
   drawPattern(ctx, R, spec.coat, pal.secondary);
 
   ctx.restore(); // squash
+
+  // --- Arms (tiny, in front of the body — bipedal tots) ---
+  if (app.arms) drawArms(ctx, R, pal.secondary, t);
 
   // --- Ember heart ---
   if (spec.extras.emberHeart) {
@@ -160,6 +172,93 @@ function drawTail(ctx, R, color, t) {
     );
     ctx.stroke();
   }
+}
+
+/* --- Form-specific appendages (give each archetype a distinct silhouette) --- */
+
+function drawFins(ctx, R, color, t) {
+  const flap = Math.sin(t / 320) * 0.12;
+  ctx.fillStyle = color;
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(side * R * 0.7, R * 0.05);
+    ctx.quadraticCurveTo(side * R * (1.35 + flap), -R * 0.15, side * R * 1.2, R * 0.5);
+    ctx.quadraticCurveTo(side * R * 1.0, R * 0.25, side * R * 0.7, R * 0.35);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // tail fin
+  ctx.beginPath();
+  ctx.moveTo(0, R * 0.85);
+  ctx.quadraticCurveTo(-R * 0.4, R * 1.3, -R * 0.5, R * 1.15);
+  ctx.quadraticCurveTo(0, R * 0.95, R * 0.5, R * 1.15);
+  ctx.quadraticCurveTo(R * 0.4, R * 1.3, 0, R * 0.85);
+  ctx.fill();
+}
+
+function drawWings(ctx, R, color, t) {
+  const flap = Math.sin(t / 220) * 0.22;
+  ctx.fillStyle = hexA(color, 0.6);
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(side * R * 0.9, -R * 0.1, R * 0.45, R * 0.28, side * (0.5 + flap), 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawEars(ctx, R, color, inner) {
+  for (const side of [-1, 1]) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.ellipse(side * R * 0.5, -R * 0.85, R * 0.22, R * 0.3, side * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = inner;
+    ctx.beginPath();
+    ctx.ellipse(side * R * 0.5, -R * 0.82, R * 0.1, R * 0.16, side * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawLeaf(ctx, R, t) {
+  const sway = Math.sin(t / 700) * 0.12;
+  ctx.strokeStyle = '#7bbf6a';
+  ctx.lineWidth = R * 0.08;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(0, -R * 0.8);
+  ctx.lineTo(sway * R, -R * 1.2);
+  ctx.stroke();
+  ctx.fillStyle = '#8fd17a';
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(sway * R + side * R * 0.16, -R * 1.22, R * 0.18, R * 0.1, side * -0.6 + sway, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawArms(ctx, R, color, t) {
+  const swing = Math.sin(t / 450) * R * 0.06;
+  ctx.fillStyle = color;
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(side * R * 0.85, R * 0.15 + side * swing, R * 0.12, R * 0.18, side * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawAntenna(ctx, R, color, t) {
+  const sway = Math.sin(t / 600) * 0.18;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = R * 0.05;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(0, -R * 0.85);
+  ctx.quadraticCurveTo(sway * R, -R * 1.25, sway * R * 1.5, -R * 1.4);
+  ctx.stroke();
+  ctx.fillStyle = '#fff2a8';
+  ctx.beginPath();
+  ctx.arc(sway * R * 1.5, -R * 1.42, R * 0.08, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawPattern(ctx, R, coat, color) {
