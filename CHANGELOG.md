@@ -2,6 +2,38 @@
 
 All notable changes to the LUMORA prototype are documented here.
 
+## [0.3.1] — Production hardening (publish-ready)
+
+A bug-hunt + multi-angle code review pass on the public API and core logic.
+
+### Fixed
+- **Correct HTTP status codes**: domain errors now carry a `status`, so client
+  mistakes (occupied/empty/out-of-range plot, not-ready harvest, unknown plant,
+  malformed trade, insufficient funds) return the right **4xx** instead of being
+  mislabelled **500s**. New `core/errors.js#GameError`; `EconomyError.status = 400`.
+  `garden.js` distinguishes `BAD_PLOT` from `EMPTY_PLOT`.
+- **Input validation / DoS**: `readJson` caps the body at 512 KB (413) and rejects
+  non-object JSON (400). `/api/preview/lumi` sanitises numeric params (a NaN no
+  longer forces always-Mythic) and 400s a malformed seed code.
+- **No charge on a rejected action**: `garden/plant` validates the plot before
+  debiting the seed cost.
+- **Soft-currency faucet exploits closed**: `/visit` blocks self-visits, dedupes
+  per neighbour per day, **and** caps rewarded visits to 5 distinct neighbours/day
+  (breadth cap), so it can't be farmed across many player ids. `stats.visits` only
+  counts rewarded visits.
+- **Store parity**: under PostgreSQL, a malformed id (path or body) now returns a
+  clean **404** instead of a Postgres `invalid input syntax for type uuid` 500.
+- **Trade offer type guards**: `offerLumi`/`requestLumi` must be arrays of string
+  ids; `offerPetals` a non-negative integer.
+
+### Notes
+- The shared world counter (Great Bloom) and the per-day visit cap are enforced in
+  process memory and last-writer-wins on commit; under multi-instance concurrency
+  these need atomic SQL increments / Redis (documented in docs/11). Correct for the
+  single-process slice.
+
+Tests: +`test/hardening.test.js` and PgStore UUID-parity + visit-cap cases. 61 → **70**.
+
 ## [0.3.0] — Real PostgreSQL persistence (durability proven)
 
 ### Added

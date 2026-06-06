@@ -153,6 +153,8 @@ pour les deux (`server/store.js` choisi par défaut, `server/pgStore.js` si `DAT
 - Auth stub (id en chemin) → à remplacer par des jetons signés.
 - `commit` réécrit la collection d'un joueur par DELETE+INSERT (simple et correct ; à rendre
   incrémental pour de très grandes collections en production).
-- Compteur mondial (Great Bloom) en mémoire de processus → à déplacer vers Redis (INCR) à l'échelle.
+- Compteur mondial (Great Bloom) **et** plafond quotidien de visites en mémoire de processus
+  (dernier-écrivain-gagne au commit) → atomiser via Redis (INCR) / contraintes SQL dédiées à
+  l'échelle multi-instances. Correct pour la *slice* mono-processus.
 - Pas de temps réel/WebSocket (le social est REST) → ajouté en bêta.
 - Génome v1 (`schema:1`) versionné → migrations gérées par le champ `schema`.

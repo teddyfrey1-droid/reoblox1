@@ -258,15 +258,19 @@ export function createApp(store = new MemoryStore()) {
       throw new HttpError(400, 'BAD_VISIT', 'Pick a neighbour other than yourself');
     }
     const target = await store.getPlayer(body.targetId); // 404 if no such player
-    player.stats.visits += 1;
-    // The visit reward is capped to once per neighbour per UTC day, so it can't be
-    // farmed by spamming the endpoint (a real soft-currency faucet exploit otherwise).
     const today = dayIndex(Date.now());
     if (!player.visitLog || player.visitLog.day !== today) player.visitLog = { day: today, ids: [] };
+    // The reward is capped two ways so it can't be farmed: once per neighbour per UTC
+    // day, AND only for the first N distinct neighbours per day (a breadth cap — the
+    // per-target cap alone wouldn't stop farming across many player ids).
     if (player.visitLog.ids.includes(body.targetId)) {
       return { visited: target.handle, reward: { petals: 0 }, alreadyVisitedToday: true };
     }
+    if (player.visitLog.ids.length >= VISIT_REWARD_CAP_PER_DAY) {
+      return { visited: target.handle, reward: { petals: 0 }, dailyCapReached: true };
+    }
     player.visitLog.ids.push(body.targetId);
+    player.stats.visits += 1; // count distinct rewarded visits only
     grant(player.wallet, { petals: 25 }, 'social_visit', player.ledger);
     return { visited: target.handle, reward: { petals: 25 } };
   });
@@ -469,6 +473,9 @@ function rarityRank(r) { return RARITY_RANK[r] ?? 0; }
 
 /** Premium Bloom Pass price in Lumen (~the 9.99€ tier; tune via remote-config in prod). */
 const PASS_PREMIUM_COST = 800;
+
+/** Max rewarded neighbour visits per UTC day (bounds the social-visit petals faucet). */
+const VISIT_REWARD_CAP_PER_DAY = 5;
 
 /** Parse a query value to a number clamped to [min,max]; falls back to `dflt` on NaN. */
 function clampNum(raw, min, max, dflt) {

@@ -78,6 +78,21 @@ test('visit reward cannot be farmed (self-visit blocked, once per neighbour/day)
   assert.equal(second.data.alreadyVisitedToday, true);
 });
 
+test('visit reward is bounded by a daily breadth cap (anti-farm across many ids)', async () => {
+  const visitor = await newPlayer('hard_cap_v');
+  // Visit 6 distinct neighbours; only the first 5 (the cap) should pay out.
+  let rewarded = 0;
+  let capped = 0;
+  for (let i = 0; i < 6; i++) {
+    const target = await newPlayer(`hard_cap_t${i}`);
+    const res = await api(`/api/players/${visitor.id}/visit`, 'POST', { targetId: target.id });
+    if (res.data.reward.petals === 25) rewarded++;
+    if (res.data.dailyCapReached) capped++;
+  }
+  assert.equal(rewarded, 5, 'exactly the daily cap of distinct visits are rewarded');
+  assert.equal(capped, 1, 'further distinct visits hit the cap with no reward');
+});
+
 test('preview sanitises input: bad seed code → 400, NaN numerics → default', async () => {
   assert.equal((await api('/api/preview/lumi?seed=LUMI-%21%21%21')).status, 400);
   // A non-numeric bloom must behave exactly like omitting it (no NaN poisoning the roll).
@@ -93,6 +108,10 @@ test('malformed trade offer is a 400, not a server error', async () => {
   const res = await api(`/api/players/${a.id}/trades`, 'POST', { toId: b.id, offerLumi: 'not-an-array' });
   assert.equal(res.status, 400);
   assert.equal(res.data.error.code, 'BAD_OFFER');
+  // Array with a non-string element is also rejected (not iterated as ids).
+  const res2 = await api(`/api/players/${a.id}/trades`, 'POST', { toId: b.id, offerLumi: [123] });
+  assert.equal(res2.status, 400);
+  assert.equal(res2.data.error.code, 'BAD_OFFER');
 });
 
 test('unknown routes and missing players return clean 4xx', async () => {
