@@ -99,3 +99,20 @@ Hypothèses détaillées et scénarios dans [12-BUSINESS-PLAN.md](12-BUSINESS-PL
 
 > Cette discipline **est** la stratégie de revenu long terme : un cozy game se monétise sur des
 > années par la fidélité, pas sur un trimestre par l'extraction.
+
+## Implémentation dans la *slice* (testée)
+
+- **Bloom Pass** : `core/pass.js` (+ routes `/pass`, `/pass/claim`, `/pass/upgrade`).
+- **Achats IAP** : `server/iap.js` — vérification de reçu **pluggable** (provider `test`
+  signé HMAC ; Apple/Google/Stripe en stubs honnêtes → `501` tant que non câblés) +
+  `POST /api/players/:id/iap/redeem` **idempotent** : un `transactionId` ne crédite
+  **qu'une fois** (déduplication via la table `iap_receipts`, persistée et testée sur
+  PgStore). Les achats ne sont **jamais** acceptés sur la seule parole du client.
+- **Abonnement « Jardin Doré »** : `core/subscription.js` — activation, **cumul** au
+  renouvellement (aucune journée perdue), **stipend** de Lumen quotidien (`/subscription`,
+  `/subscription/stipend`). Avantages de confort/expression uniquement (non *pay-to-win*).
+- **Catalogue produits** public : `GET /api/store/products` (`IAP_PRODUCTS`).
+
+> Les vérificateurs Apple/Google/Stripe réels (App Store Server API, Play Developer API,
+> signatures Stripe) se branchent sur la même interface — le pipeline redeem→grant→
+> idempotence est déjà éprouvé.

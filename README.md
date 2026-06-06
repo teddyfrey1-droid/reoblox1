@@ -18,7 +18,7 @@ jouable qui dessine chaque créature à partir de son génome.
 
 ```bash
 npm start          # API + prototype sur http://localhost:8787 (mémoire + auth activée)
-npm test           # 77 tests : cœur + intégration API + durabilité PostgreSQL + auth
+npm test           # 85 tests : cœur + API + durabilité PostgreSQL + auth + monétisation
 npm run sim        # simulation d'équilibrage → docs/BALANCE-REPORT.md
 npm run gallery    # régénère la galerie de Lumi (SVG)
 npm run seed:demo  # affiche un échantillon de créatures générées
@@ -53,7 +53,7 @@ Generator, Collection, Bloom Ritual et le monde partagé Great Bloom.*
 | [`web/`](web/) | Prototype jouable (canvas) + **moteur de rendu procédural** des Lumi |
 | [`db/`](db/schema.sql) | Schéma PostgreSQL de production (validé + utilisé par `PgStore`) |
 | [`tools/`](tools/) | Export SVG, **simulation d'équilibrage**, captures headless |
-| [`test/`](test/) | Suite de tests `node --test` (**77 tests** : cœur + intégration API + durabilité PostgreSQL + auth) |
+| [`test/`](test/) | Suite de tests `node --test` (**85 tests** : cœur + API + durabilité PostgreSQL + auth + monétisation) |
 
 ## 🧬 La pièce maîtresse : le système génératif des Lumi
 
@@ -100,9 +100,10 @@ Détails : [`docs/11-TECH-ARCHITECTURE.md`](docs/11-TECH-ARCHITECTURE.md).
 - [x] **Persistance PostgreSQL réelle** (`server/pgStore.js`) — **durabilité prouvée** : l'état survit à une instance de store fraîche (`test/pgstore.test.js` sur PGlite)
 - [x] **Authentification** par jetons signés HS256 + flux invité par appareil (`server/auth.js`) — **testé** (401 sans jeton, 403 compte d'autrui)
 - [x] **Durcissement** : codes 4xx corrects, validation d'entrée, anti-exploit, parité d'erreurs des stores — **testé**
+- [x] **Monétisation** : reçus IAP validés serveur **idempotents** (jamais de double-crédit) + abonnement « Jardin Doré » + stipend (`server/iap.js`, `core/subscription.js`) — **testé** (dont déduplication persistée en base)
 - [x] **Simulation d'équilibrage** pilotée par données → [`BALANCE-REPORT.md`](docs/BALANCE-REPORT.md)
 - [x] **OpenAPI** ([`docs/openapi.yaml`](docs/openapi.yaml))
-- [ ] Validation serveur des reçus IAP, temps réel (WebSocket), client moteur (Godot) — *roadmap*
+- [ ] Vérificateurs IAP réels (Apple/Google/Stripe), temps réel (WebSocket), client moteur (Godot) — *roadmap*
 
 ## 📜 Licence
 

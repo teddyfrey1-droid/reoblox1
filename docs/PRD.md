@@ -72,9 +72,10 @@ complète sans blocage, signaux de rétention interne encourageants.
 - **Critères d'acceptation :**
   - ✅ Crédit/débit/achat validés et journalisés ; *atomicité* du paiement ; caps (testé).
   - ✅ Rapport faucet/sink calculable (anti-inflation, testé).
-  - ⬜ IAP store + web shop (Stripe) ; validation serveur des reçus ; déduplication.
+  - ✅ **Pipeline IAP serveur** : vérification de reçu (pluggable) + **redeem idempotent** (déduplication par `transactionId`, jamais de double-crédit) — testé (provider `test`; dédup persistée en base sur PgStore).
+  - ⬜ Vérificateurs **réels** Apple/Google/Stripe (stubs honnêtes → 501 tant que non câblés) + web shop.
   - ✅ **Bloom Pass jouable** (XP, paliers, voies gratuite/premium, achat premium en Lumen) — testé.
-  - ⬜ Abonnement « Jardin Doré ».
+  - ✅ **Abonnement « Jardin Doré »** (activation, cumul au renouvellement, stipend quotidien) — testé.
 
 ### EF-6 — Rétention quotidienne
 - **Critères d'acceptation :**
@@ -141,3 +142,4 @@ complète sans blocage, signaux de rétention interne encourageants.
 | EF-8 social / échanges | `server/store.js`, `core/trade.js`, `server/api.js` | `test/trade.test.js`, `test/api.test.js` |
 | Persistance durable (PostgreSQL) | `server/pgStore.js`, `server/db.js`, `db/schema.sql` | `test/pgstore.test.js` (durabilité) |
 | EF-1 authentification (jetons + invité) | `server/auth.js`, `server/api.js` (middleware self) | `test/auth.test.js` |
+| EF-5 monétisation (IAP idempotent + abonnement) | `server/iap.js`, `core/subscription.js`, `core/content.js` | `test/iap.test.js`, `test/pgstore.test.js` (dédup) |

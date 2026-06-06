@@ -24,6 +24,8 @@ tags:
   - name: BloomPass
   - name: Social
   - name: Trading
+  - name: Auth
+  - name: Monetisation
 
 paths:
   /api/healthz:
@@ -340,6 +342,71 @@ paths:
         - { $ref: '#/components/parameters/PlayerId' }
         - { in: path, name: tradeId, required: true, schema: { type: string } }
       responses: { '200': { description: Cancelled } }
+
+  /api/auth/guest:
+    post:
+      tags: [Auth]
+      summary: Anonymous/guest login — get or recover a player + a session token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { deviceId: { type: string, description: "8-128 [\\w-]; omitted → a new one is issued" } }
+      responses:
+        '200':
+          description: Player + bearer token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  player: { $ref: '#/components/schemas/Player' }
+                  token: { type: string }
+                  deviceId: { type: string }
+                  created: { type: boolean }
+
+  /api/store/products:
+    get:
+      tags: [Monetisation]
+      summary: Real-money product catalog (Lumen packs + subscription)
+      responses: { '200': { description: Products } }
+
+  /api/players/{id}/iap/redeem:
+    post:
+      tags: [Monetisation]
+      summary: Redeem a verified purchase (idempotent per transactionId)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform, productId, transactionId, receipt]
+              properties:
+                platform: { type: string, enum: [apple, google, stripe, test] }
+                productId: { type: string }
+                transactionId: { type: string }
+                receipt: { type: string }
+      responses:
+        '200': { description: Granted (or alreadyRedeemed) }
+        '400': { $ref: '#/components/responses/Error' }
+        '402': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/Error' }
+
+  /api/players/{id}/subscription:
+    get:
+      tags: [Monetisation]
+      summary: Golden Garden subscription status
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses: { '200': { description: Subscription view } }
+  /api/players/{id}/subscription/stipend:
+    post:
+      tags: [Monetisation]
+      summary: Claim the daily Lumen stipend (once/day while subscribed)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses: { '200': { description: Claimed }, '400': { $ref: '#/components/responses/Error' } }
 
 components:
   parameters:

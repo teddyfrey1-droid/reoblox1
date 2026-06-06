@@ -2,6 +2,31 @@
 
 All notable changes to the LUMORA prototype are documented here.
 
+## [0.5.0] — Monetisation: server-validated IAP + Golden Garden subscription
+
+### Added
+- **Server-validated, idempotent IAP** (`server/iap.js` + `POST /api/players/:id/iap/redeem`):
+  the client sends a platform receipt; the server verifies it BEFORE granting, and a
+  `transactionId` can only ever be redeemed once — retries/replays never double-credit
+  (the core money-correctness guarantee). Dedup is in-memory for `MemoryStore` and a
+  unique `iap_receipts.transaction_id` for `PgStore` (persisted; verified by test).
+  Verifier is pluggable: a signed `test` provider exercises the full pipeline;
+  Apple/Google/Stripe are honest stubs (501 until real credentials are wired).
+- **"Golden Garden" subscription** (`core/subscription.js`): activation, renewals that
+  STACK (no lost paid time), and a once-per-day Lumen stipend
+  (`GET /api/players/:id/subscription`, `POST …/subscription/stipend`). Convenience/
+  expression benefits only — never power.
+- **Product catalog** (`IAP_PRODUCTS`) at `GET /api/store/products`.
+- Store gains `hasReceipt`/`recordReceipt`; player carries a `subscription` (persisted
+  in PgStore flags + a receipts insert in the unit of work). `db/schema.sql`:
+  `iap_receipts.platform` now allows `test`.
+
+### Tests
+- `test/iap.test.js` (7): subscription stacking/stipend (unit), Lumen credit, **idempotent
+  double-redeem (no double-credit)**, forged-receipt 402, unknown-product 400, unconfigured
+  provider 501, subscription activation + stipend. Plus a PgStore durable-dedup case.
+  Suite: 77 → **85**, all green.
+
 ## [0.4.0] — Authentication (closes the open-API security gap)
 
 ### Added
