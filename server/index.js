@@ -2,11 +2,12 @@
 /**
  * Server entry point. Boots the HTTP API + static prototype on one port.
  *
- *   npm start            # http://localhost:8787
+ *   npm start                              # in-memory store, demo world (zero infra)
  *   PORT=3000 npm start
+ *   DATABASE_URL=postgres://… npm start    # durable PostgreSQL store (needs `pg`)
  *
- * Intentionally tiny: all behaviour is in api.js (orchestration) and /core (rules),
- * so this file only wires the network listener and a clean shutdown.
+ * Store selection is the only branch here; all behaviour lives in api.js
+ * (orchestration) and /core (rules).
  */
 
 import { createServer } from 'node:http';
@@ -16,17 +17,31 @@ import { seedDemoWorld } from './scripts/demo.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 
-const store = new MemoryStore();
-// Pre-populate a few neighbours + a demo account so the prototype isn't lonely.
-const demo = seedDemoWorld(store);
+let store;
+let demoNote = '';
+
+if (process.env.DATABASE_URL) {
+  // Durable mode: Postgres-backed store (data survives restarts). `pg` is lazy-imported.
+  const { PgStore } = await import('./pgStore.js');
+  const { openPostgres } = await import('./db.js');
+  const db = await openPostgres(process.env.DATABASE_URL);
+  store = await new PgStore(db).init();
+  demoNote = '  ─ Store:             PostgreSQL (durable)\n';
+} else {
+  // Zero-infra mode: in-memory store with a pre-seeded demo world so the prototype
+  // isn't lonely on first load.
+  store = new MemoryStore();
+  const demo = seedDemoWorld(store);
+  demoNote = `  ─ Store:             in-memory (set DATABASE_URL for durable Postgres)\n  ─ Demo player id:    ${demo.id} (handle "${demo.handle}")\n`;
+}
 
 const server = createServer(createApp(store));
 
 server.listen(PORT, () => {
-  console.log(`\n  🌱 LUMORA dev server`);
+  console.log('\n  🌱 LUMORA dev server');
   console.log(`  ─ API + prototype:  http://localhost:${PORT}`);
   console.log(`  ─ Try the generator: http://localhost:${PORT}/api/preview/lumi?biome=nocturne`);
-  console.log(`  ─ Demo player id:    ${demo.id} (handle "${demo.handle}")\n`);
+  process.stdout.write(demoNote + '\n');
 });
 
 // Graceful shutdown (clean container teardown / nodemon restarts).

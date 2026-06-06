@@ -94,6 +94,11 @@ CREATE TABLE lumi (
     nickname      TEXT,                            -- player-given
     favorite      BOOLEAN NOT NULL DEFAULT false,
     locked        BOOLEAN NOT NULL DEFAULT false,  -- protect from accidental trade/release
+    -- Full genome blob. Harvested Lumi are reproducible from seed+context, but BRED
+    -- Lumi are the product of breedLumi() with parent overlays and are not, so we
+    -- persist the resolved genome to guarantee exact rehydration. (A production
+    -- optimisation may store only seed+context for the harvested majority.)
+    genome        JSONB,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX lumi_owner_idx     ON lumi (owner_id, created_at DESC);
@@ -111,8 +116,10 @@ CREATE TABLE gardens (
     bloom       REAL NOT NULL DEFAULT 0 CHECK (bloom BETWEEN 0 AND 100),
     care_streak INT  NOT NULL DEFAULT 0,
     decor       JSONB NOT NULL DEFAULT '[]',
-    layout      JSONB NOT NULL DEFAULT '{}',      -- decor positions, theme
-    UNIQUE (player_id, id)
+    layout      JSONB NOT NULL DEFAULT '{}',      -- plots + decor positions + theme
+    -- One garden per player in the current slice (multi-garden is a future feature);
+    -- this lets the store UPSERT a player's garden by player_id.
+    UNIQUE (player_id)
 );
 CREATE INDEX gardens_player_idx ON gardens (player_id);
 

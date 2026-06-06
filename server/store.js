@@ -47,42 +47,25 @@ export class MemoryStore {
       throw Object.assign(new Error('Handle already taken'), { code: 'HANDLE_TAKEN', status: 409 });
     }
     const id = randomUUID();
-    const wallet = createWallet();
-    // Onboarding grant: soft currency to spend, plus a small one-time taste of premium
-    // currency so new players can try the Bloom Ritual (premium feature) once — a
-    // deliberate conversion tactic (let them experience the value before paying).
-    wallet.petals = 300;
-    wallet.lumen = 50;
-    const player = {
-      id,
-      handle,
-      createdAt: Date.now(),
-      wallet,
-      xp: 0,
-      garden: createGarden('meadow', 2),
-      /** @type {object[]} */ collection: [], // owned Lumi genomes
-      ledger: /** @type {any[]} */ ([]),
-      streak: { streak: 0, lastClaimDay: undefined },
-      unlocks: { breeding: false, trading: false, visiting: false },
-      stats: { lumiHatched: 0, visits: 0, photos: 0 },
-      pity: createPity(),              // bad-luck protection counters
-      pass: createPassState(),         // Bloom Pass progress
-      bloomdexClaimed: [],             // claimed Bloomdex milestone ids
-      constellationId: null,           // guild membership
-    };
+    const player = newPlayer(id, handle);
     this.players.set(id, player);
     this.handleToId.set(handle.toLowerCase(), id);
 
     // Two starter Lumi so Collection and Bloom Ritual are immediately meaningful
     // (a "starter pair" is standard onboarding for collection games).
-    for (let i = 0; i < 2; i++) {
-      const seed = (hashString(`${handle}:starter:${i}`)) >>> 0;
-      this.addLumi(player, generateLumi(seed, {
-        biome: player.garden.biome, season: this.world.season,
-        bloomLevel: this.world.bloomLevel, careQuality: 0.55,
-      }));
-    }
+    for (const lumi of starterLumi(handle, this.world)) this.addLumi(player, lumi);
     return player;
+  }
+
+  /**
+   * Per-request unit of work. The MemoryStore mutates live object references, so
+   * persistence is implicit — this is a no-op wrapper that simply runs the handler.
+   * (PgStore overrides it to load/commit a transaction.) Kept on both stores so the
+   * API request loop is store-agnostic.
+   * @param {string} _method @param {() => any} fn
+   */
+  async withRequest(_method, fn) {
+    return fn();
   }
 
   /** @param {string} id */
@@ -220,6 +203,44 @@ export class MemoryStore {
   getWorld() {
     return { ...this.world, uptimeMs: Date.now() - this.world.startedAt };
   }
+}
+
+/**
+ * Build a fresh player object (single source of truth for the player shape, shared
+ * by MemoryStore and PgStore so the two can never drift). Does NOT add starter Lumi
+ * — the caller adds them via addLumi so each store updates its world counters.
+ * @param {string} id @param {string} handle
+ */
+export function newPlayer(id, handle) {
+  const wallet = createWallet();
+  // Onboarding grant: soft currency to spend + a one-time taste of premium currency
+  // so new players can try the Bloom Ritual once (a deliberate conversion tactic).
+  wallet.petals = 300;
+  wallet.lumen = 50;
+  return {
+    id,
+    handle,
+    createdAt: Date.now(),
+    wallet,
+    xp: 0,
+    garden: createGarden('meadow', 2),
+    /** @type {object[]} */ collection: [],
+    ledger: /** @type {any[]} */ ([]),
+    streak: { streak: 0, lastClaimDay: undefined },
+    unlocks: { breeding: false, trading: false, visiting: false },
+    stats: { lumiHatched: 0, visits: 0, photos: 0 },
+    pity: createPity(),
+    pass: createPassState(),
+    bloomdexClaimed: [],
+    constellationId: null,
+  };
+}
+
+/** The two deterministic starter Lumi granted on signup. */
+export function starterLumi(handle, world) {
+  return [0, 1].map((i) => generateLumi((hashString(`${handle}:starter:${i}`)) >>> 0, {
+    biome: 'meadow', season: world.season, bloomLevel: world.bloomLevel, careQuality: 0.55,
+  }));
 }
 
 /** Compact Lumi projection for lists/showcases (keeps payloads small). */

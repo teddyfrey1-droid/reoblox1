@@ -71,13 +71,13 @@ export function createApp(store = new MemoryStore()) {
    * Keeper XP + feature unlocks, Bloom Pass XP, and constellation contribution.
    * Centralised so the two creation paths can never drift apart.
    */
-  function onHatch(player, lumi, xpGain) {
+  async function onHatch(player, lumi, xpGain) {
     recordHatch(player.pity, lumi.rarity);
     const xp = applyXp(player.xp, xpGain);
     player.xp = xp.totalXp;
     for (const u of xp.unlocked) if (u.feature in player.unlocks) player.unlocks[u.feature] = true;
     const passRes = addPassXp(player.pass, xpGain);
-    store.contributeBloom(player, 1 + rarityRank(lumi.rarity));
+    await store.contributeBloom(player, 1 + rarityRank(lumi.rarity));
     return { unlocked: xp.unlocked, pass: passView(player.pass), tiersGained: passRes.tiersGained };
   }
 
@@ -108,22 +108,22 @@ export function createApp(store = new MemoryStore()) {
 
   /* ------------------------------- players --------------------------------- */
 
-  route('POST', '/api/players', (_p, body) => {
+  route('POST', '/api/players', async (_p, body) => {
     const handle = String(body.handle || '').trim();
     if (handle.length < 3 || handle.length > 20 || !/^[\w]+$/.test(handle)) {
       throw new HttpError(400, 'BAD_HANDLE', 'Handle must be 3-20 word characters');
     }
-    const player = store.createPlayer(handle);
+    const player = await store.createPlayer(handle);
     return { player: publicPlayer(player) };
   });
 
-  route('GET', '/api/players/:id', (params) => {
-    const player = store.getPlayer(params.id);
+  route('GET', '/api/players/:id', async (params) => {
+    const player = await store.getPlayer(params.id);
     return { player: publicPlayer(player) };
   });
 
-  route('GET', '/api/players/:id/collection', (params, _b, q) => {
-    const player = store.getPlayer(params.id);
+  route('GET', '/api/players/:id/collection', async (params, _b, q) => {
+    const player = await store.getPlayer(params.id);
     const sort = q.get('sort') || 'recent';
     let list = player.collection.slice();
     if (sort === 'power') list.sort((a, b) => b.power - a.power);
@@ -134,8 +134,8 @@ export function createApp(store = new MemoryStore()) {
     return { collection: list, total: player.collection.length };
   });
 
-  route('GET', '/api/players/:id/lumi/:uid', (params) => {
-    const player = store.getPlayer(params.id);
+  route('GET', '/api/players/:id/lumi/:uid', async (params) => {
+    const player = await store.getPlayer(params.id);
     const lumi = player.collection.find((l) => l.uid === params.uid);
     if (!lumi) throw new HttpError(404, 'NOT_FOUND', 'No such Lumi');
     return { lumi };
@@ -143,8 +143,8 @@ export function createApp(store = new MemoryStore()) {
 
   /* ------------------------------ progression ------------------------------ */
 
-  route('POST', '/api/players/:id/daily', (params) => {
-    const player = store.getPlayer(params.id);
+  route('POST', '/api/players/:id/daily', async (params) => {
+    const player = await store.getPlayer(params.id);
     const res = claimDaily(player.streak, Date.now());
     player.streak = res.updated;
     if (!res.alreadyClaimed) {
@@ -154,15 +154,15 @@ export function createApp(store = new MemoryStore()) {
     return { claimed: !res.alreadyClaimed, reward: res.reward, streak: res.streak, broke: res.broke };
   });
 
-  route('GET', '/api/players/:id/quests', (params) => {
-    const player = store.getPlayer(params.id);
+  route('GET', '/api/players/:id/quests', async (params) => {
+    const player = await store.getPlayer(params.id);
     return { quests: dailyQuests(player.id, Date.now()) };
   });
 
   /* --------------------------------- shop ---------------------------------- */
 
-  route('POST', '/api/players/:id/shop/buy', (params, body) => {
-    const player = store.getPlayer(params.id);
+  route('POST', '/api/players/:id/shop/buy', async (params, body) => {
+    const player = await store.getPlayer(params.id);
     const kind = body.kind;
     if (!['plant', 'decor', 'biome'].includes(kind)) {
       throw new HttpError(400, 'BAD_KIND', 'kind must be plant|decor|biome');
@@ -175,13 +175,13 @@ export function createApp(store = new MemoryStore()) {
 
   /* -------------------------------- garden --------------------------------- */
 
-  route('GET', '/api/players/:id/garden', (params) => {
-    const player = store.getPlayer(params.id);
+  route('GET', '/api/players/:id/garden', async (params) => {
+    const player = await store.getPlayer(params.id);
     return { garden: garden.gardenView(player.garden, Date.now()) };
   });
 
-  route('POST', '/api/players/:id/garden/plant', (params, body) => {
-    const player = store.getPlayer(params.id);
+  route('POST', '/api/players/:id/garden/plant', async (params, body) => {
+    const player = await store.getPlayer(params.id);
     const plantId = body.plantId;
     const def = byId.plant(plantId);
     if (!def) throw new HttpError(400, 'UNKNOWN_PLANT', 'No such seed');
@@ -194,21 +194,21 @@ export function createApp(store = new MemoryStore()) {
     return { planted: { plotIndex: Number(body.plotIndex), readyAt: planting.readyAt }, wallet: player.wallet };
   });
 
-  route('POST', '/api/players/:id/garden/water', (params, body) => {
-    const player = store.getPlayer(params.id);
+  route('POST', '/api/players/:id/garden/water', async (params, body) => {
+    const player = await store.getPlayer(params.id);
     const res = garden.water(player.garden, Number(body.plotIndex), Date.now());
     return { watered: res.watered, readyAt: res.readyAt };
   });
 
-  route('POST', '/api/players/:id/garden/harvest', (params, body) => {
-    const player = store.getPlayer(params.id);
+  route('POST', '/api/players/:id/garden/harvest', async (params, body) => {
+    const player = await store.getPlayer(params.id);
     // Evaluate bad-luck protection at hatch time against the player's live dry streak.
     const floor = pityFloor(player.pity);
     const { lumi } = garden.harvest(
       player.garden, Number(body.plotIndex), Date.now(), floor ? { rarityFloor: floor } : {},
     );
     const owned = store.addLumi(player, lumi);
-    const fx = onHatch(player, lumi, 40 + rarityRank(lumi.rarity) * 25);
+    const fx = await onHatch(player, lumi, 40 + rarityRank(lumi.rarity) * 25);
     return {
       lumi: owned, level: levelFromXp(player.xp), unlocked: fx.unlocked,
       pass: fx.pass, pityRescue: !!floor,
@@ -217,8 +217,8 @@ export function createApp(store = new MemoryStore()) {
 
   /* ------------------------------- breeding -------------------------------- */
 
-  route('POST', '/api/players/:id/breed', (params, body) => {
-    const player = store.getPlayer(params.id);
+  route('POST', '/api/players/:id/breed', async (params, body) => {
+    const player = await store.getPlayer(params.id);
     const a = player.collection.find((l) => l.uid === body.parentA);
     const b = player.collection.find((l) => l.uid === body.parentB);
     if (!a || !b) throw new HttpError(400, 'BAD_PARENTS', 'Both parents must be owned');
@@ -228,39 +228,39 @@ export function createApp(store = new MemoryStore()) {
     const ritualSeed = (Date.now() ^ (player.collection.length * 2654435761)) >>> 0;
     const child = breedLumi(a, b, { ritualSeed, biome: player.garden.biome, season: store.world.season, bloomLevel: store.world.bloomLevel });
     const owned = store.addLumi(player, child);
-    const fx = onHatch(player, child, 120);
+    const fx = await onHatch(player, child, 120);
     return { child: owned, wallet: player.wallet, level: levelFromXp(player.xp), pass: fx.pass };
   });
 
   /* ------------------------------- social ---------------------------------- */
 
-  route('GET', '/api/players/:id/neighbours', (params) => {
-    const player = store.getPlayer(params.id);
-    return { neighbours: store.listNeighbours(player.id) };
+  route('GET', '/api/players/:id/neighbours', async (params) => {
+    const player = await store.getPlayer(params.id);
+    return { neighbours: await store.listNeighbours(player.id) };
   });
 
-  route('POST', '/api/players/:id/visit', (params, body) => {
-    const player = store.getPlayer(params.id);
-    const target = store.getPlayer(body.targetId);
+  route('POST', '/api/players/:id/visit', async (params, body) => {
+    const player = await store.getPlayer(params.id);
+    const target = await store.getPlayer(body.targetId);
     player.stats.visits += 1;
     // Visiting a neighbour grants a small "watering can" social reward (encourages it).
     grant(player.wallet, { petals: 25 }, 'social_visit', player.ledger);
     return { visited: target.handle, reward: { petals: 25 } };
   });
 
-  route('GET', '/api/leaderboard', () => ({ leaderboard: store.leaderboard() }));
+  route('GET', '/api/leaderboard', async () => ({ leaderboard: await store.leaderboard() }));
 
   /* ------------------------------- Bloomdex -------------------------------- */
 
-  route('GET', '/api/players/:id/bloomdex', (params) => {
-    const player = store.getPlayer(params.id);
+  route('GET', '/api/players/:id/bloomdex', async (params) => {
+    const player = await store.getPlayer(params.id);
     const dex = bloomdex(player.collection);
     const { milestones } = claimableMilestones(player.collection, player.bloomdexClaimed);
     return { bloomdex: dex, claimable: milestones.map((m) => ({ id: m.id, label: m.label, reward: m.reward })) };
   });
 
-  route('POST', '/api/players/:id/bloomdex/claim', (params) => {
-    const player = store.getPlayer(params.id);
+  route('POST', '/api/players/:id/bloomdex/claim', async (params) => {
+    const player = await store.getPlayer(params.id);
     const { milestones, reward } = claimableMilestones(player.collection, player.bloomdexClaimed);
     if (!milestones.length) throw new HttpError(400, 'NOTHING_TO_CLAIM', 'No Bloomdex milestones ready');
     grant(player.wallet, reward, 'bloomdex_milestone', player.ledger);
@@ -270,13 +270,13 @@ export function createApp(store = new MemoryStore()) {
 
   /* ------------------------------ Bloom Pass ------------------------------- */
 
-  route('GET', '/api/players/:id/pass', (params) => {
-    const player = store.getPlayer(params.id);
+  route('GET', '/api/players/:id/pass', async (params) => {
+    const player = await store.getPlayer(params.id);
     return { pass: passView(player.pass), claimable: claimableTiers(player.pass) };
   });
 
-  route('POST', '/api/players/:id/pass/claim', (params, body) => {
-    const player = store.getPlayer(params.id);
+  route('POST', '/api/players/:id/pass/claim', async (params, body) => {
+    const player = await store.getPlayer(params.id);
     const lane = body.lane === 'premium' ? 'premium' : 'free';
     let reward;
     try {
@@ -290,8 +290,8 @@ export function createApp(store = new MemoryStore()) {
     return { claimed: { tier: Number(body.tier), lane }, reward, wallet: player.wallet };
   });
 
-  route('POST', '/api/players/:id/pass/upgrade', (params) => {
-    const player = store.getPlayer(params.id);
+  route('POST', '/api/players/:id/pass/upgrade', async (params) => {
+    const player = await store.getPlayer(params.id);
     if (player.pass.premium) throw new HttpError(400, 'ALREADY_PREMIUM', 'Premium pass already owned');
     if (player.wallet.lumen < PASS_PREMIUM_COST) throw new HttpError(402, 'NEED_LUMEN', `Premium Bloom Pass costs ${PASS_PREMIUM_COST} Lumen`);
     debit(player.wallet, 'lumen', PASS_PREMIUM_COST, 'pass_premium', player.ledger);
@@ -301,37 +301,37 @@ export function createApp(store = new MemoryStore()) {
 
   /* ----------------------------- Constellations ---------------------------- */
 
-  route('GET', '/api/constellations', () => ({ constellations: store.listConstellations() }));
+  route('GET', '/api/constellations', async () => ({ constellations: await store.listConstellations() }));
 
-  route('GET', '/api/players/:id/constellation', (params) => {
-    const player = store.getPlayer(params.id);
+  route('GET', '/api/players/:id/constellation', async (params) => {
+    const player = await store.getPlayer(params.id);
     if (!player.constellationId) return { constellation: null };
-    const c = store.getConstellation(player.constellationId);
+    const c = await store.getConstellation(player.constellationId);
     return { constellation: c };
   });
 
-  route('POST', '/api/players/:id/constellation/create', (params, body) => {
-    const player = store.getPlayer(params.id);
-    const c = store.createConstellation(player, body.name);
+  route('POST', '/api/players/:id/constellation/create', async (params, body) => {
+    const player = await store.getPlayer(params.id);
+    const c = await store.createConstellation(player, body.name);
     return { constellation: { id: c.id, name: c.name, members: c.members.length, bloomScore: c.bloomScore } };
   });
 
-  route('POST', '/api/players/:id/constellation/join', (params, body) => {
-    const player = store.getPlayer(params.id);
-    const c = store.joinConstellation(player, body.constellationId);
+  route('POST', '/api/players/:id/constellation/join', async (params, body) => {
+    const player = await store.getPlayer(params.id);
+    const c = await store.joinConstellation(player, body.constellationId);
     return { constellation: { id: c.id, name: c.name, members: c.members.length, bloomScore: c.bloomScore } };
   });
 
   /* -------------------------------- Trades --------------------------------- */
 
-  route('GET', '/api/players/:id/trades', (params) => {
-    const player = store.getPlayer(params.id);
-    return { incoming: store.listIncomingTrades(player.id) };
+  route('GET', '/api/players/:id/trades', async (params) => {
+    const player = await store.getPlayer(params.id);
+    return { incoming: await store.listIncomingTrades(player.id) };
   });
 
-  route('POST', '/api/players/:id/trades', (params, body) => {
-    const from = store.getPlayer(params.id);
-    const to = store.getPlayer(body.toId);
+  route('POST', '/api/players/:id/trades', async (params, body) => {
+    const from = await store.getPlayer(params.id);
+    const to = await store.getPlayer(body.toId);
     // Validate the offer up-front so a player can't propose something they can't honour.
     let tax;
     try {
@@ -343,12 +343,12 @@ export function createApp(store = new MemoryStore()) {
     return { trade, tax };
   });
 
-  route('POST', '/api/players/:id/trades/:tradeId/accept', (params) => {
-    const accepter = store.getPlayer(params.id);
-    const trade = store.getTrade(params.tradeId);
+  route('POST', '/api/players/:id/trades/:tradeId/accept', async (params) => {
+    const accepter = await store.getPlayer(params.id);
+    const trade = await store.getTrade(params.tradeId);
     if (!trade || trade.status !== 'open') throw new HttpError(404, 'NO_TRADE', 'Trade not found or closed');
     if (trade.toId !== accepter.id) throw new HttpError(403, 'NOT_RECIPIENT', 'Only the recipient can accept');
-    const from = store.getPlayer(trade.fromId);
+    const from = await store.getPlayer(trade.fromId);
     let result;
     try {
       result = executeTrade(from, accepter, trade);
@@ -360,9 +360,9 @@ export function createApp(store = new MemoryStore()) {
     return { result, fromWallet: from.wallet, toWallet: accepter.wallet };
   });
 
-  route('POST', '/api/players/:id/trades/:tradeId/cancel', (params) => {
-    const player = store.getPlayer(params.id);
-    const trade = store.getTrade(params.tradeId);
+  route('POST', '/api/players/:id/trades/:tradeId/cancel', async (params) => {
+    const player = await store.getPlayer(params.id);
+    const trade = await store.getTrade(params.tradeId);
     if (!trade || trade.status !== 'open') throw new HttpError(404, 'NO_TRADE', 'Trade not found or closed');
     if (trade.fromId !== player.id && trade.toId !== player.id) throw new HttpError(403, 'NOT_PARTY', 'Not your trade');
     trade.status = 'cancelled';
@@ -371,8 +371,8 @@ export function createApp(store = new MemoryStore()) {
 
   /* -------------------------- Lumi management ------------------------------ */
 
-  route('POST', '/api/players/:id/lumi/:uid/lock', (params, body) => {
-    const player = store.getPlayer(params.id);
+  route('POST', '/api/players/:id/lumi/:uid/lock', async (params, body) => {
+    const player = await store.getPlayer(params.id);
     const lumi = player.collection.find((l) => l.uid === params.uid);
     if (!lumi) throw new HttpError(404, 'NOT_FOUND', 'No such Lumi');
     lumi.locked = body.locked !== false; // default to locking
@@ -398,7 +398,9 @@ export function createApp(store = new MemoryStore()) {
         if (!match) throw new HttpError(404, 'NO_ROUTE', `No route for ${req.method} ${url.pathname}`);
         const params = url.pathname.match(match.re)?.groups || {};
         const body = req.method === 'POST' ? await readJson(req) : {};
-        const result = await match.fn(params, body, url.searchParams);
+        // Run the handler inside the store's per-request unit of work. For PgStore
+        // this loads/commits a transaction; for MemoryStore it just runs the handler.
+        const result = await store.withRequest(req.method, () => match.fn(params, body, url.searchParams));
         return sendJson(res, 200, result);
       } catch (err) {
         return sendError(res, err);
