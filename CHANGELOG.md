@@ -2,6 +2,25 @@
 
 All notable changes to the LUMORA prototype are documented here.
 
+## [0.6.0] — Real-time (WebSocket): presence + live world & social events
+
+### Added
+- **Real-time hub** (`server/realtime.js`) on the `ws` library (OPTIONAL dependency,
+  lazy-loaded; degrades to a no-op so the REST API is unaffected if `ws` is absent):
+  - **Token-authenticated** WebSocket at `/ws?token=<jwt>` (same signing key as REST).
+  - **Presence** (online count broadcast on connect/disconnect), **live Great-Bloom
+    ticks** on every hatch/breed, and **personal visit notifications** routed only to
+    the visited player's own connections.
+- API emits these events (`createApp(store, { realtime })`); `server/index.js` shares
+  one signing key across REST + WS and attaches the hub to the HTTP server.
+- Web prototype connects automatically and updates the Great-Bloom bar live + toasts
+  on visits (verified in a headless browser, no console errors).
+
+### Tests
+- `test/realtime.test.js` (4): authenticated welcome bound to the player id, invalid
+  token rejected at the handshake, live world tick on breed, and a visit notification
+  delivered to the host. Suite: 85 → **89**, all green.
+
 ## [0.5.0] — Monetisation: server-validated IAP + Golden Garden subscription
 
 ### Added

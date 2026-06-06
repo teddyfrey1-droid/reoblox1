@@ -18,7 +18,7 @@ jouable qui dessine chaque créature à partir de son génome.
 
 ```bash
 npm start          # API + prototype sur http://localhost:8787 (mémoire + auth activée)
-npm test           # 85 tests : cœur + API + durabilité PostgreSQL + auth + monétisation
+npm test           # 89 tests : + auth + monétisation + temps réel
 npm run sim        # simulation d'équilibrage → docs/BALANCE-REPORT.md
 npm run gallery    # régénère la galerie de Lumi (SVG)
 npm run seed:demo  # affiche un échantillon de créatures générées
@@ -49,11 +49,11 @@ Generator, Collection, Bloom Ritual et le monde partagé Great Bloom.*
 |---|---|
 | [`docs/`](docs/) | **Le dossier de production** — 15 documents + GDD + PRD + OpenAPI + rapport d'équilibrage |
 | [`core/`](core/) | Le **cœur de jeu** pur et déterministe (genome, économie, progression, jardin, pity, bloomdex, pass, trade) |
-| [`server/`](server/) | API HTTP (module `http` natif) + **auth par jetons** (`auth.js`) + **2 stores** : `MemoryStore` et `PgStore` (PostgreSQL réel) derrière la même interface |
+| [`server/`](server/) | API HTTP (`http` natif) + **WebSocket temps réel** (`realtime.js`) + **auth par jetons** (`auth.js`) + **2 stores** : `MemoryStore` et `PgStore` (PostgreSQL réel) derrière la même interface |
 | [`web/`](web/) | Prototype jouable (canvas) + **moteur de rendu procédural** des Lumi |
 | [`db/`](db/schema.sql) | Schéma PostgreSQL de production (validé + utilisé par `PgStore`) |
 | [`tools/`](tools/) | Export SVG, **simulation d'équilibrage**, captures headless |
-| [`test/`](test/) | Suite de tests `node --test` (**85 tests** : cœur + API + durabilité PostgreSQL + auth + monétisation) |
+| [`test/`](test/) | Suite de tests `node --test` (**89 tests** : cœur + API + PostgreSQL + auth + monétisation + temps réel) |
 
 ## 🧬 La pièce maîtresse : le système génératif des Lumi
 
@@ -101,9 +101,10 @@ Détails : [`docs/11-TECH-ARCHITECTURE.md`](docs/11-TECH-ARCHITECTURE.md).
 - [x] **Authentification** par jetons signés HS256 + flux invité par appareil (`server/auth.js`) — **testé** (401 sans jeton, 403 compte d'autrui)
 - [x] **Durcissement** : codes 4xx corrects, validation d'entrée, anti-exploit, parité d'erreurs des stores — **testé**
 - [x] **Monétisation** : reçus IAP validés serveur **idempotents** (jamais de double-crédit) + abonnement « Jardin Doré » + stipend (`server/iap.js`, `core/subscription.js`) — **testé** (dont déduplication persistée en base)
+- [x] **Temps réel** (WebSocket) : présence, ticks live du Great Bloom, notifications de visite ; auth par jeton sur `/ws` (`server/realtime.js`) — **testé** (client `ws`)
 - [x] **Simulation d'équilibrage** pilotée par données → [`BALANCE-REPORT.md`](docs/BALANCE-REPORT.md)
 - [x] **OpenAPI** ([`docs/openapi.yaml`](docs/openapi.yaml))
-- [ ] Vérificateurs IAP réels (Apple/Google/Stripe), temps réel (WebSocket), client moteur (Godot) — *roadmap*
+- [ ] Vérificateurs IAP réels (Apple/Google/Stripe), chat de Constellation, client moteur (Godot) — *roadmap*
 
 ## 📜 Licence
 

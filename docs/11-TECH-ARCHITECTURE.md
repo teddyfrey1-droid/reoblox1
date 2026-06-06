@@ -160,5 +160,9 @@ pour les deux (`server/store.js` choisi par défaut, `server/pgStore.js` si `DAT
 - Compteur mondial (Great Bloom) **et** plafond quotidien de visites en mémoire de processus
   (dernier-écrivain-gagne au commit) → atomiser via Redis (INCR) / contraintes SQL dédiées à
   l'échelle multi-instances. Correct pour la *slice* mono-processus.
-- Pas de temps réel/WebSocket (le social est REST) → ajouté en bêta.
+- ~~Pas de temps réel/WebSocket~~ → **fait** : hub WebSocket (`server/realtime.js`, lib `ws`
+  en dépendance *optionnelle*) — présence, **ticks live du Great Bloom**, notifications de
+  visite personnelles ; auth par jeton sur `/ws?token=` (même clé que le REST). Dégrade en
+  *no-op* si `ws` absent (le REST n'est pas affecté). *À venir* : chat de Constellation,
+  *fan-out* via Redis pub/sub pour le multi-instances, *ticket* court-vécu au lieu du token en URL.
 - Génome v1 (`schema:1`) versionné → migrations gérées par le champ `schema`.

@@ -94,7 +94,8 @@ complète sans blocage, signaux de rétention interne encourageants.
   - ✅ Monde **pré-peuplé** pour éviter le vide au lancement (`server/scripts/demo.js`).
   - ✅ **Constellations** (créer/rejoindre, ≤30, score de bloom collectif) — testé.
   - ✅ **Échanges sécurisés** joueur-à-joueur (escrow atomique, taxe, verrouillage) — testé.
-  - ⬜ Amis/cadeaux ; chat temps réel.
+  - ✅ **Temps réel** (WebSocket auth par jeton) : présence, ticks live du Great Bloom, notifications de visite — testé.
+  - ⬜ Amis/cadeaux ; chat de Constellation temps réel.
 
 ### EF-9 — Monde partagé (Great Bloom)
 - **Critères d'acceptation :**
@@ -143,3 +144,4 @@ complète sans blocage, signaux de rétention interne encourageants.
 | Persistance durable (PostgreSQL) | `server/pgStore.js`, `server/db.js`, `db/schema.sql` | `test/pgstore.test.js` (durabilité) |
 | EF-1 authentification (jetons + invité) | `server/auth.js`, `server/api.js` (middleware self) | `test/auth.test.js` |
 | EF-5 monétisation (IAP idempotent + abonnement) | `server/iap.js`, `core/subscription.js`, `core/content.js` | `test/iap.test.js`, `test/pgstore.test.js` (dédup) |
+| EF-8 temps réel (présence/visites/bloom live) | `server/realtime.js`, `server/api.js` (emit), `web/app.js` | `test/realtime.test.js` |
