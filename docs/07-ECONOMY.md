@@ -93,3 +93,18 @@ croissant pour absorber le pouvoir d'achat grandissant des vétérans.
 
 > En résumé : l'économie de LUMORA est **instrumentée dès le prototype** (grand-livre + rapport
 > faucet/sink en code testé), ce qui permet une gestion *live-ops* fondée sur la donnée dès le J1.
+
+## Validation par simulation (données réelles)
+
+Le harnais [`tools/simulate.js`](../tools/simulate.js) fait tourner une population de joueurs
+simulés (500 × 30 jours par défaut) à travers **les vrais modules** du cœur (économie, génération,
+pity, progression, Bloomdex) et produit [`BALANCE-REPORT.md`](BALANCE-REPORT.md). Dernier run :
+
+- **Ratio faucet/sink (Pétales) ≈ 1,04** → dans la bande saine 1,0–1,18 ✅.
+- Le puits dominant est **cosmétique** (`shop:cosmetic`) — exactement le puits élastique sain visé.
+- Distribution de raretés conforme aux poids, légèrement relevée par bloom/soin/pity.
+- **Pity** : ~0,7 % des éclosions « sauvées », plus longue série sèche observée = 17 (plafond < 18).
+
+> C'est l'avantage du déterminisme : on **valide l'équilibrage hors-ligne, de façon reproductible,
+> avant** d'exposer un changement en live. Relancer `npm run sim` après toute retouche de
+> `core/content.js` détecte immédiatement une dérive d'inflation ou de courbe de rareté.

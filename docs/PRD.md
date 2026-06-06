@@ -55,7 +55,9 @@ complète sans blocage, signaux de rétention interne encourageants.
   - ✅ Distribution de raretés conforme aux poids ; mythic rare mais atteignable (testé).
   - ✅ Collection triable (récence/puissance/rareté). `GET /api/players/:id/collection`.
   - ✅ *Seed codes* partageables (`encode/decodeSeedCode`, round-trip testé).
-  - ⬜ Bloomdex (encyclopédie de complétion) ; mode photo.
+  - ✅ **Bloomdex** (complétion espèces/éléments/formes/raretés/mutations + paliers) — testé.
+  - ✅ **Bad-luck protection** (pity) garantissant une rareté minimale — testé + simulé.
+  - ⬜ Mode photo.
 
 ### EF-4 — Reproduction (Rituel de Floraison)
 - *En tant que* joueur investi, *je veux* combiner deux Lumi *afin d'*en créer de nouveaux.
@@ -70,7 +72,8 @@ complète sans blocage, signaux de rétention interne encourageants.
   - ✅ Crédit/débit/achat validés et journalisés ; *atomicité* du paiement ; caps (testé).
   - ✅ Rapport faucet/sink calculable (anti-inflation, testé).
   - ⬜ IAP store + web shop (Stripe) ; validation serveur des reçus ; déduplication.
-  - ⬜ Bloom Pass jouable + abonnement.
+  - ✅ **Bloom Pass jouable** (XP, paliers, voies gratuite/premium, achat premium en Lumen) — testé.
+  - ⬜ Abonnement « Jardin Doré ».
 
 ### EF-6 — Rétention quotidienne
 - **Critères d'acceptation :**
@@ -87,7 +90,9 @@ complète sans blocage, signaux de rétention interne encourageants.
 - **Critères d'acceptation :**
   - ✅ Lister des voisins ; rendre visite (+récompense) ; classement mondial.
   - ✅ Monde **pré-peuplé** pour éviter le vide au lancement (`server/scripts/demo.js`).
-  - ⬜ Constellations (Alpha) ; amis/cadeaux.
+  - ✅ **Constellations** (créer/rejoindre, ≤30, score de bloom collectif) — testé.
+  - ✅ **Échanges sécurisés** joueur-à-joueur (escrow atomique, taxe, verrouillage) — testé.
+  - ⬜ Amis/cadeaux ; chat temps réel.
 
 ### EF-9 — Monde partagé (Great Bloom)
 - **Critères d'acceptation :**
@@ -129,6 +134,7 @@ complète sans blocage, signaux de rétention interne encourageants.
 | EF-2 boucle jardin | `core/garden.js`, `server/api.js` | `test/garden.test.js` |
 | EF-3 génération | `core/genome.js` | `test/genome.test.js` |
 | EF-4 reproduction | `core/genome.js#breedLumi`, `/breed` | `test/genome.test.js` |
-| EF-5 économie | `core/economy.js` | `test/economy.test.js` |
+| EF-3 pity / Bloomdex | `core/luck.js`, `core/bloomdex.js` | `test/luck.test.js`, `test/bloomdex.test.js` |
+| EF-5 économie / Bloom Pass | `core/economy.js`, `core/pass.js` | `test/economy.test.js`, `test/pass.test.js` |
 | EF-6/EF-7 rétention/progression | `core/progression.js`, `core/content.js` | `test/progression.test.js` |
-| EF-8 social | `server/store.js`, `server/api.js` | (smoke API) |
+| EF-8 social / échanges | `server/store.js`, `core/trade.js`, `server/api.js` | `test/trade.test.js`, `test/api.test.js` |

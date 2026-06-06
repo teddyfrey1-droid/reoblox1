@@ -119,9 +119,18 @@ Carillon d'éclosion modulé par la rareté ; *gibberish* vocal par tempérament
 | `POST /api/players/:id/daily` · `GET …/quests` | Récompense quotidienne · quêtes |
 | `POST …/shop/buy {kind,id}` | Achat (plant/decor/biome) |
 | `GET …/garden` · `POST …/garden/plant｜water｜harvest` | Boucle de jardin |
-| `GET …/collection?sort` · `GET …/lumi/:uid` | Collection · détail Lumi |
-| `POST …/breed {parentA,parentB}` | Rituel de Floraison |
+| `GET …/collection?sort` · `GET …/lumi/:uid` · `POST …/lumi/:uid/lock` | Collection · détail · verrouillage |
+| `POST …/breed {parentA,parentB}` | Rituel de Floraison (pity + Pass XP + bloom de guilde appliqués) |
+| `GET …/bloomdex` · `POST …/bloomdex/claim` | Encyclopédie de collection + paliers |
+| `GET …/pass` · `POST …/pass/claim` · `POST …/pass/upgrade` | Bloom Pass (voies gratuite/premium) |
+| `GET /api/constellations` · `GET/POST …/constellation[/create|/join]` | Constellations (guildes) |
+| `GET/POST …/trades` · `POST …/trades/:id/{accept|cancel}` | Échanges sécurisés (escrow atomique) |
 | `GET …/neighbours` · `POST …/visit` · `GET /api/leaderboard` | Social |
+
+> Référence machine : [`openapi.yaml`](openapi.yaml) (32 opérations). Systèmes ajoutés en v0.2 et
+> **testés** : pity (`core/luck.js`), Bloomdex (`core/bloomdex.js`), Bloom Pass (`core/pass.js`),
+> échanges (`core/trade.js`), plus un **test d'intégration API en process** et une **simulation
+> d'équilibrage** (`tools/simulate.js` → [`BALANCE-REPORT.md`](BALANCE-REPORT.md)).
 
 ## 11. UX / onboarding
 

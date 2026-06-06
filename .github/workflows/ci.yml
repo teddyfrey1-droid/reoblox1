@@ -44,3 +44,6 @@ jobs:
 
       - name: Generate Lumi gallery (smoke test for the generative pipeline)
         run: node tools/render-svg.js
+
+      - name: Balance simulation smoke (small cohort)
+        run: node tools/simulate.js 200 14

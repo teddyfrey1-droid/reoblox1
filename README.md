@@ -18,24 +18,31 @@ jouable qui dessine chaque créature à partir de son génome.
 
 ```bash
 npm start          # API + prototype sur http://localhost:8787
-npm test           # 30 tests du cœur de jeu (déterminisme, économie, progression, jardin)
+npm test           # 55 tests du cœur de jeu + intégration API
+npm run sim        # simulation d'équilibrage → docs/BALANCE-REPORT.md
+npm run gallery    # régénère la galerie de Lumi (SVG)
 npm run seed:demo  # affiche un échantillon de créatures générées
 ```
 
 Aucune dépendance d'exécution n'est requise (Node ≥ 20, modules natifs uniquement).
 Ouvrez ensuite `http://localhost:8787` et essayez l'onglet **✨ Generator**.
 
+![Prototype jouable LUMORA](docs/assets/prototype.png)
+
+*Capture réelle du prototype (rendu via Chromium headless, sans erreur console) :
+Generator, Collection, Bloom Ritual et le monde partagé Great Bloom.*
+
 ## 🗂️ Structure du dépôt
 
 | Dossier | Contenu |
 |---|---|
-| [`docs/`](docs/) | **Le dossier de production** — 15 documents (vision → business plan) + GDD + PRD |
-| [`core/`](core/) | Le **cœur de jeu** pur et déterministe (zéro dépendance, partagé serveur ⇄ navigateur) |
+| [`docs/`](docs/) | **Le dossier de production** — 15 documents + GDD + PRD + OpenAPI + rapport d'équilibrage |
+| [`core/`](core/) | Le **cœur de jeu** pur et déterministe (genome, économie, progression, jardin, pity, bloomdex, pass, trade) |
 | [`server/`](server/) | API HTTP (module `http` natif) + store en mémoire (interface ⇒ Postgres) |
 | [`web/`](web/) | Prototype jouable (canvas) + **moteur de rendu procédural** des Lumi |
 | [`db/`](db/schema.sql) | Schéma PostgreSQL de production (validé) |
-| [`tools/`](tools/) | Export SVG headless (preuve visuelle / planches de concept) |
-| [`test/`](test/) | Suite de tests (`node --test`) |
+| [`tools/`](tools/) | Export SVG, **simulation d'équilibrage**, captures headless |
+| [`test/`](test/) | Suite de tests `node --test` (**55 tests**, cœur + intégration API) |
 
 ## 🧬 La pièce maîtresse : le système génératif des Lumi
 
@@ -69,12 +76,18 @@ Détails : [`docs/11-TECH-ARCHITECTURE.md`](docs/11-TECH-ARCHITECTURE.md).
 ## ✅ État de la vertical slice
 
 - [x] Génération + reproduction déterministes des Lumi (`core/genome.js`) — **testé**
+- [x] **Protection anti-malchance** (pity) garantissant une rareté minimale (`core/luck.js`) — **testé**
 - [x] Économie 2-monnaies avec grand-livre source/puits anti-inflation — **testé**
 - [x] Progression : niveaux, *streaks* quotidiens (avec jour de grâce), quêtes — **testé**
 - [x] Boucle de jardin : planter → arroser → récolter → éclore — **testé**
-- [x] API HTTP complète + onboarding + social (voisins, classement) — **vérifié**
-- [x] Prototype web jouable + rendu procédural — **vérifié**
+- [x] **Bloomdex** (complétion de collection + paliers) (`core/bloomdex.js`) — **testé**
+- [x] **Bloom Pass** saisonnier (voies gratuite/premium) (`core/pass.js`) — **testé**
+- [x] **Constellations** (guildes) + **échanges sécurisés** atomiques (`core/trade.js`) — **testé**
+- [x] API HTTP complète + onboarding + social + intégration **en process** — **testé**
+- [x] Prototype web jouable + **rendu procédural par forme** — **vérifié (capture Chromium)**
 - [x] Schéma PostgreSQL — **validé** (appliqué sur un vrai moteur)
+- [x] **Simulation d'équilibrage** pilotée par données → [`BALANCE-REPORT.md`](docs/BALANCE-REPORT.md)
+- [x] **OpenAPI** ([`docs/openapi.yaml`](docs/openapi.yaml), 32 opérations)
 - [ ] Auth réelle, persistance Postgres, temps réel, client moteur (Godot) — *roadmap*
 
 ## 📜 Licence

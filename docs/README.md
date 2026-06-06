@@ -24,6 +24,8 @@ un comité de direction de studio.
 | 12 | [Business plan](12-BUSINESS-PLAN.md) | Budget, revenus, scénarios pessimiste / réaliste / optimiste |
 | — | [Game Design Document](GDD.md) | GDD maître (référence transverse) |
 | — | [Product Requirements Document](PRD.md) | PRD du MVP (exigences, critères d'acceptation) |
+| — | [Balance Report](BALANCE-REPORT.md) | Rapport d'équilibrage **auto-généré** (`npm run sim`) |
+| — | [OpenAPI](openapi.yaml) | Spécification de l'API (32 opérations) |
 
 ## Convention de décision
 
