@@ -96,6 +96,7 @@ const SYL_TAIL = ['mo', 'ra', 'lo', 'ki', 'na', 'pip', 'dle', 'sy', 'won', 'bo',
  * @property {string} [season]           'spring'|'summer'|'autumn'|'winter'; tints palette.
  * @property {number} [careQuality]      0..1 how well the parent garden was tended; nudges stats & rarity.
  * @property {string} [plantSpecies]     The plant the seed grew from; biases form.
+ * @property {string} [rarityFloor]      Optional guaranteed minimum rarity (pity/bad-luck protection).
  */
 
 /**
@@ -251,7 +252,15 @@ export function generateLumi(seed, ctx = {}) {
   const care = clamp01(ctx.careQuality ?? 0.5);
   // Luck for rarity: world bloom contributes up to +1.5x lift, care up to +0.8x.
   const luck = bloom * 1.5 + care * 0.8;
-  const rarity = rollRarity(r, luck);
+  let rarity = rollRarity(r, luck);
+  // Bad-luck protection: the pity system (core/luck.js) may pass a rarity floor that
+  // guarantees a minimum tier without otherwise distorting the roll. This keeps the
+  // variable-reward loop exciting while preventing the "100 commons in a row" churn.
+  if (ctx.rarityFloor) {
+    const floorIdx = RARITY_ORDER.indexOf(ctx.rarityFloor);
+    const rolledIdx = RARITY_ORDER.indexOf(rarity.id);
+    if (floorIdx > 0 && floorIdx > rolledIdx) rarity = RARITIES[floorIdx];
+  }
 
   const element = rollElement(r, ctx);
   const form = r.weighted(FORMS.map((f) => ({ value: f, weight: f.weight })));
@@ -316,6 +325,19 @@ function buildRenderSpec(r, { form, pattern, palette, size, eyeCount, mutations,
       legs: form.legs,
       wobble: +r.float(0.04, 0.12).toFixed(3),
       size,
+      // Form id + silhouette hints let any renderer give each archetype a distinct
+      // outline instead of "same blob, different colour" (key to perceived variety).
+      form: form.id,
+      elongate: form.id === 'wyrm' ? 1.55 : 1,
+      hover: form.id === 'floater' ? 0.22 : 0, // floaters sit higher off the ground
+    },
+    appendages: {
+      fins: form.id === 'finling',     // side + tail fins
+      leaf: form.id === 'sprout',      // a sprouting stem/leaf on top
+      ears: form.id === 'critter',     // rounded ears
+      wings: form.id === 'floater',    // little hovering wings
+      arms: form.id === 'tot',         // tiny arms (bipedal)
+      antenna: form.id === 'wyrm',     // a curious antenna
     },
     coat: {
       pattern,

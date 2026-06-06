@@ -20,13 +20,19 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { MemoryStore } from './store.js';
-import { purchase, grant, EconomyError } from '../core/economy.js';
+import { purchase, grant, debit, EconomyError } from '../core/economy.js';
 import { byId, BIOMES, PLANTS, DECOR, BLOOM_PASS } from '../core/content.js';
 import * as garden from '../core/garden.js';
 import { generateLumi, breedLumi, decodeSeedCode } from '../core/genome.js';
 import {
   applyXp, levelFromXp, claimDaily, dailyQuests,
 } from '../core/progression.js';
+import { pityFloor, recordHatch } from '../core/luck.js';
+import { bloomdex, claimableMilestones } from '../core/bloomdex.js';
+import {
+  passView, addPassXp, claimableTiers, claimTier, upgradeToPremium,
+} from '../core/pass.js';
+import { executeTrade, validateTrade } from '../core/trade.js';
 
 const ROOT = join(fileURLToPath(import.meta.url), '..', '..');
 
@@ -59,6 +65,21 @@ export function createApp(store = new MemoryStore()) {
     const re = new RegExp('^' + pattern.replace(/:[^/]+/g, (m) => `(?<${m.slice(1)}>[^/]+)`) + '/?$');
     routes.push({ method, re, fn });
   };
+
+  /**
+   * Shared post-hatch effects for both harvesting and breeding: pity bookkeeping,
+   * Keeper XP + feature unlocks, Bloom Pass XP, and constellation contribution.
+   * Centralised so the two creation paths can never drift apart.
+   */
+  function onHatch(player, lumi, xpGain) {
+    recordHatch(player.pity, lumi.rarity);
+    const xp = applyXp(player.xp, xpGain);
+    player.xp = xp.totalXp;
+    for (const u of xp.unlocked) if (u.feature in player.unlocks) player.unlocks[u.feature] = true;
+    const passRes = addPassXp(player.pass, xpGain);
+    store.contributeBloom(player, 1 + rarityRank(lumi.rarity));
+    return { unlocked: xp.unlocked, pass: passView(player.pass), tiersGained: passRes.tiersGained };
+  }
 
   /* ----------------------------- public / meta ----------------------------- */
 
@@ -181,13 +202,17 @@ export function createApp(store = new MemoryStore()) {
 
   route('POST', '/api/players/:id/garden/harvest', (params, body) => {
     const player = store.getPlayer(params.id);
-    const { lumi } = garden.harvest(player.garden, Number(body.plotIndex), Date.now());
+    // Evaluate bad-luck protection at hatch time against the player's live dry streak.
+    const floor = pityFloor(player.pity);
+    const { lumi } = garden.harvest(
+      player.garden, Number(body.plotIndex), Date.now(), floor ? { rarityFloor: floor } : {},
+    );
     const owned = store.addLumi(player, lumi);
-    // Hatching grants XP; level-ups may unlock features.
-    const xp = applyXp(player.xp, 40 + rarityRank(lumi.rarity) * 25);
-    player.xp = xp.totalXp;
-    for (const u of xp.unlocked) if (u.feature in player.unlocks) player.unlocks[u.feature] = true;
-    return { lumi: owned, level: levelFromXp(player.xp), unlocked: xp.unlocked };
+    const fx = onHatch(player, lumi, 40 + rarityRank(lumi.rarity) * 25);
+    return {
+      lumi: owned, level: levelFromXp(player.xp), unlocked: fx.unlocked,
+      pass: fx.pass, pityRescue: !!floor,
+    };
   });
 
   /* ------------------------------- breeding -------------------------------- */
@@ -203,9 +228,8 @@ export function createApp(store = new MemoryStore()) {
     const ritualSeed = (Date.now() ^ (player.collection.length * 2654435761)) >>> 0;
     const child = breedLumi(a, b, { ritualSeed, biome: player.garden.biome, season: store.world.season, bloomLevel: store.world.bloomLevel });
     const owned = store.addLumi(player, child);
-    const xp = applyXp(player.xp, 120);
-    player.xp = xp.totalXp;
-    return { child: owned, wallet: player.wallet, level: levelFromXp(player.xp) };
+    const fx = onHatch(player, child, 120);
+    return { child: owned, wallet: player.wallet, level: levelFromXp(player.xp), pass: fx.pass };
   });
 
   /* ------------------------------- social ---------------------------------- */
@@ -225,6 +249,135 @@ export function createApp(store = new MemoryStore()) {
   });
 
   route('GET', '/api/leaderboard', () => ({ leaderboard: store.leaderboard() }));
+
+  /* ------------------------------- Bloomdex -------------------------------- */
+
+  route('GET', '/api/players/:id/bloomdex', (params) => {
+    const player = store.getPlayer(params.id);
+    const dex = bloomdex(player.collection);
+    const { milestones } = claimableMilestones(player.collection, player.bloomdexClaimed);
+    return { bloomdex: dex, claimable: milestones.map((m) => ({ id: m.id, label: m.label, reward: m.reward })) };
+  });
+
+  route('POST', '/api/players/:id/bloomdex/claim', (params) => {
+    const player = store.getPlayer(params.id);
+    const { milestones, reward } = claimableMilestones(player.collection, player.bloomdexClaimed);
+    if (!milestones.length) throw new HttpError(400, 'NOTHING_TO_CLAIM', 'No Bloomdex milestones ready');
+    grant(player.wallet, reward, 'bloomdex_milestone', player.ledger);
+    for (const m of milestones) player.bloomdexClaimed.push(m.id);
+    return { claimed: milestones.map((m) => m.id), reward, wallet: player.wallet };
+  });
+
+  /* ------------------------------ Bloom Pass ------------------------------- */
+
+  route('GET', '/api/players/:id/pass', (params) => {
+    const player = store.getPlayer(params.id);
+    return { pass: passView(player.pass), claimable: claimableTiers(player.pass) };
+  });
+
+  route('POST', '/api/players/:id/pass/claim', (params, body) => {
+    const player = store.getPlayer(params.id);
+    const lane = body.lane === 'premium' ? 'premium' : 'free';
+    let reward;
+    try {
+      reward = claimTier(player.pass, Number(body.tier), lane);
+    } catch (e) {
+      throw new HttpError(400, 'PASS_CLAIM', e.message);
+    }
+    if (!reward) throw new HttpError(400, 'ALREADY_CLAIMED', 'Nothing to claim on that tier/lane');
+    // Translate currency rewards into wallet grants; cosmetics/seeds are noted as-is.
+    grant(player.wallet, { petals: reward.petals, lumen: reward.lumen }, `pass:${lane}:${body.tier}`, player.ledger);
+    return { claimed: { tier: Number(body.tier), lane }, reward, wallet: player.wallet };
+  });
+
+  route('POST', '/api/players/:id/pass/upgrade', (params) => {
+    const player = store.getPlayer(params.id);
+    if (player.pass.premium) throw new HttpError(400, 'ALREADY_PREMIUM', 'Premium pass already owned');
+    if (player.wallet.lumen < PASS_PREMIUM_COST) throw new HttpError(402, 'NEED_LUMEN', `Premium Bloom Pass costs ${PASS_PREMIUM_COST} Lumen`);
+    debit(player.wallet, 'lumen', PASS_PREMIUM_COST, 'pass_premium', player.ledger);
+    upgradeToPremium(player.pass);
+    return { premium: true, wallet: player.wallet, pass: passView(player.pass) };
+  });
+
+  /* ----------------------------- Constellations ---------------------------- */
+
+  route('GET', '/api/constellations', () => ({ constellations: store.listConstellations() }));
+
+  route('GET', '/api/players/:id/constellation', (params) => {
+    const player = store.getPlayer(params.id);
+    if (!player.constellationId) return { constellation: null };
+    const c = store.getConstellation(player.constellationId);
+    return { constellation: c };
+  });
+
+  route('POST', '/api/players/:id/constellation/create', (params, body) => {
+    const player = store.getPlayer(params.id);
+    const c = store.createConstellation(player, body.name);
+    return { constellation: { id: c.id, name: c.name, members: c.members.length, bloomScore: c.bloomScore } };
+  });
+
+  route('POST', '/api/players/:id/constellation/join', (params, body) => {
+    const player = store.getPlayer(params.id);
+    const c = store.joinConstellation(player, body.constellationId);
+    return { constellation: { id: c.id, name: c.name, members: c.members.length, bloomScore: c.bloomScore } };
+  });
+
+  /* -------------------------------- Trades --------------------------------- */
+
+  route('GET', '/api/players/:id/trades', (params) => {
+    const player = store.getPlayer(params.id);
+    return { incoming: store.listIncomingTrades(player.id) };
+  });
+
+  route('POST', '/api/players/:id/trades', (params, body) => {
+    const from = store.getPlayer(params.id);
+    const to = store.getPlayer(body.toId);
+    // Validate the offer up-front so a player can't propose something they can't honour.
+    let tax;
+    try {
+      tax = validateTrade(from, to, body).tax;
+    } catch (e) {
+      throw new HttpError(400, e.code || 'TRADE_INVALID', e.message);
+    }
+    const trade = store.createTrade(from, to, body);
+    return { trade, tax };
+  });
+
+  route('POST', '/api/players/:id/trades/:tradeId/accept', (params) => {
+    const accepter = store.getPlayer(params.id);
+    const trade = store.getTrade(params.tradeId);
+    if (!trade || trade.status !== 'open') throw new HttpError(404, 'NO_TRADE', 'Trade not found or closed');
+    if (trade.toId !== accepter.id) throw new HttpError(403, 'NOT_RECIPIENT', 'Only the recipient can accept');
+    const from = store.getPlayer(trade.fromId);
+    let result;
+    try {
+      result = executeTrade(from, accepter, trade);
+    } catch (e) {
+      throw new HttpError(400, e.code || 'TRADE_FAILED', e.message);
+    }
+    trade.status = 'accepted';
+    trade.resolvedAt = Date.now();
+    return { result, fromWallet: from.wallet, toWallet: accepter.wallet };
+  });
+
+  route('POST', '/api/players/:id/trades/:tradeId/cancel', (params) => {
+    const player = store.getPlayer(params.id);
+    const trade = store.getTrade(params.tradeId);
+    if (!trade || trade.status !== 'open') throw new HttpError(404, 'NO_TRADE', 'Trade not found or closed');
+    if (trade.fromId !== player.id && trade.toId !== player.id) throw new HttpError(403, 'NOT_PARTY', 'Not your trade');
+    trade.status = 'cancelled';
+    return { cancelled: trade.id };
+  });
+
+  /* -------------------------- Lumi management ------------------------------ */
+
+  route('POST', '/api/players/:id/lumi/:uid/lock', (params, body) => {
+    const player = store.getPlayer(params.id);
+    const lumi = player.collection.find((l) => l.uid === params.uid);
+    if (!lumi) throw new HttpError(404, 'NOT_FOUND', 'No such Lumi');
+    lumi.locked = body.locked !== false; // default to locking
+    return { uid: lumi.uid, locked: lumi.locked };
+  });
 
   /* ----------------------------- request loop ------------------------------ */
 
@@ -281,11 +434,16 @@ function publicPlayer(p) {
     unlocks: p.unlocks,
     streak: p.streak.streak ?? 0,
     stats: p.stats,
+    pass: passView(p.pass),
+    constellationId: p.constellationId,
   };
 }
 
 const RARITY_RANK = { common: 0, uncommon: 1, rare: 2, epic: 3, legendary: 4, mythic: 5 };
 function rarityRank(r) { return RARITY_RANK[r] ?? 0; }
+
+/** Premium Bloom Pass price in Lumen (~the 9.99€ tier; tune via remote-config in prod). */
+const PASS_PREMIUM_COST = 800;
 
 function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');

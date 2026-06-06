@@ -16,6 +16,8 @@ import { createWallet } from '../core/economy.js';
 import { createGarden } from '../core/garden.js';
 import { generateLumi } from '../core/genome.js';
 import { hashString } from '../core/rng.js';
+import { createPity } from '../core/luck.js';
+import { createPassState } from '../core/pass.js';
 
 export class MemoryStore {
   constructor() {
@@ -23,6 +25,10 @@ export class MemoryStore {
     this.players = new Map();
     /** @type {Map<string, string>} */
     this.handleToId = new Map();
+    /** @type {Map<string, object>} */
+    this.constellations = new Map();
+    /** @type {Map<string, object>} */
+    this.trades = new Map();
     /** Global, shared world state — the "Great Bloom" meta. */
     this.world = {
       season: 'spring',
@@ -59,6 +65,10 @@ export class MemoryStore {
       streak: { streak: 0, lastClaimDay: undefined },
       unlocks: { breeding: false, trading: false, visiting: false },
       stats: { lumiHatched: 0, visits: 0, photos: 0 },
+      pity: createPity(),              // bad-luck protection counters
+      pass: createPassState(),         // Bloom Pass progress
+      bloomdexClaimed: [],             // claimed Bloomdex milestone ids
+      constellationId: null,           // guild membership
     };
     this.players.set(id, player);
     this.handleToId.set(handle.toLowerCase(), id);
@@ -131,6 +141,80 @@ export class MemoryStore {
     }));
     rows.sort((a, b) => b.topPower - a.topPower || b.collectionSize - a.collectionSize);
     return rows.slice(0, limit);
+  }
+
+  /* ----------------------------- Constellations ---------------------------- */
+
+  /** Found a constellation (guild). The creator becomes its founder. */
+  createConstellation(player, name) {
+    if (player.constellationId) throw Object.assign(new Error('Already in a constellation'), { code: 'IN_GUILD', status: 409 });
+    const clean = String(name || '').trim();
+    if (clean.length < 3 || clean.length > 24) throw Object.assign(new Error('Name must be 3-24 chars'), { code: 'BAD_NAME', status: 400 });
+    for (const c of this.constellations.values()) {
+      if (c.name.toLowerCase() === clean.toLowerCase()) throw Object.assign(new Error('Name taken'), { code: 'NAME_TAKEN', status: 409 });
+    }
+    const id = randomUUID();
+    const c = { id, name: clean, createdAt: Date.now(), bloomScore: 0, members: [] };
+    this.constellations.set(id, c);
+    this._addMember(c, player, 'founder');
+    return c;
+  }
+
+  joinConstellation(player, cid) {
+    const c = this.constellations.get(cid);
+    if (!c) throw Object.assign(new Error('No such constellation'), { code: 'NOT_FOUND', status: 404 });
+    if (player.constellationId) throw Object.assign(new Error('Already in a constellation'), { code: 'IN_GUILD', status: 409 });
+    if (c.members.length >= 30) throw Object.assign(new Error('Constellation full (30)'), { code: 'GUILD_FULL', status: 409 });
+    this._addMember(c, player, 'member');
+    return c;
+  }
+
+  _addMember(c, player, role) {
+    c.members.push({ playerId: player.id, handle: player.handle, role, contributed: 0, joinedAt: Date.now() });
+    player.constellationId = c.id;
+  }
+
+  /** Contribute bloom to the player's constellation (called on hatch). */
+  contributeBloom(player, amount) {
+    if (!player.constellationId) return null;
+    const c = this.constellations.get(player.constellationId);
+    if (!c) return null;
+    c.bloomScore += amount;
+    const m = c.members.find((x) => x.playerId === player.id);
+    if (m) m.contributed += amount;
+    return c;
+  }
+
+  listConstellations(limit = 20) {
+    return [...this.constellations.values()]
+      .map((c) => ({ id: c.id, name: c.name, members: c.members.length, bloomScore: c.bloomScore }))
+      .sort((a, b) => b.bloomScore - a.bloomScore)
+      .slice(0, limit);
+  }
+
+  getConstellation(cid) {
+    return this.constellations.get(cid) || null;
+  }
+
+  /* -------------------------------- Trades --------------------------------- */
+
+  createTrade(from, to, offer) {
+    const id = randomUUID();
+    const trade = {
+      id, fromId: from.id, toId: to.id,
+      offerLumi: offer.offerLumi || [], offerPetals: offer.offerPetals || 0,
+      requestLumi: offer.requestLumi || [], status: 'open', createdAt: Date.now(),
+    };
+    this.trades.set(id, trade);
+    return trade;
+  }
+
+  getTrade(id) {
+    return this.trades.get(id) || null;
+  }
+
+  listIncomingTrades(playerId) {
+    return [...this.trades.values()].filter((t) => t.toId === playerId && t.status === 'open');
   }
 
   getWorld() {

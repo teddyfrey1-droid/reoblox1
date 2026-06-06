@@ -108,9 +108,11 @@ export function isReady(planting, nowMs) {
  * @param {object} garden
  * @param {number} plotIndex
  * @param {number} nowMs
+ * @param {object} [extra]  extra generation context merged in at hatch time
+ *                          (e.g. a pity `rarityFloor` evaluated against live state)
  * @returns {{ lumi: object, garden: object }}
  */
-export function harvest(garden, plotIndex, nowMs) {
+export function harvest(garden, plotIndex, nowMs, extra = {}) {
   const plot = garden.plots[plotIndex];
   if (!plot || !plot.planting) throw new Error('Nothing planted here');
   const p = plot.planting;
@@ -120,6 +122,7 @@ export function harvest(garden, plotIndex, nowMs) {
   const careQuality = Math.min(1, 0.35 + p.watered * 0.18 + garden.bloom / 300);
   const ctx = {
     ...p.context,
+    ...extra, // hatch-time overrides (pity floor, event modifiers)
     careQuality,
     // Premium/seasonal seeds fold their rarityLuck into bloomLevel-equivalent luck.
     bloomLevel: Math.min(100, (p.context.bloomLevel || 0) + (p.context.rarityLuck || 0) * 60),
