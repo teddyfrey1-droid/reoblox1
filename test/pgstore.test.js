@@ -13,6 +13,9 @@ import { createServer } from 'node:http';
 import { createApp } from '../server/api.js';
 import { PgStore } from '../server/pgStore.js';
 import { pgliteAdapter } from '../server/db.js';
+import { testReceipt } from '../server/iap.js';
+
+const IAP_SECRET = 'pg-iap-secret';
 
 // Try to load PGlite + the contrib extensions the schema needs.
 let PGlite, citext, pg_trgm;
@@ -43,7 +46,7 @@ if (!PGlite) {
   before(async () => {
     pglite = await PGlite.create({ extensions: { citext, pg_trgm } });
     const store = await new PgStore(pgliteAdapter(pglite)).init();
-    server = createServer(createApp(store));
+    server = createServer(createApp(store, { iapTestSecret: IAP_SECRET }));
     await new Promise((res) => server.listen(0, res));
     base = `http://127.0.0.1:${server.address().port}`;
   });
@@ -114,6 +117,18 @@ if (!PGlite) {
     const bAfter = (await api(`/api/players/${b.id}/collection`)).data.collection.map((l) => l.uid);
     assert.ok(aAfter.includes(bColl[0].uid), 'A received B-0 (persisted)');
     assert.ok(bAfter.includes(aColl[0].uid), 'B received A-0 (persisted)');
+  });
+
+  test('IAP receipt dedup is durable (no double-credit across requests)', async () => {
+    const id = (await api('/api/players', 'POST', { handle: 'pg_iap' })).data.player.id;
+    const before = (await api(`/api/players/${id}`)).data.player.wallet.lumen;
+    const body = { platform: 'test', productId: 'lumen_pouch', transactionId: 'pg-tx-1', receipt: testReceipt(IAP_SECRET, 'lumen_pouch', 'pg-tx-1') };
+    const first = await api(`/api/players/${id}/iap/redeem`, 'POST', body);
+    assert.equal(first.data.wallet.lumen, before + 500);
+    // Second redeem in a SEPARATE request: hasReceipt() reads the committed row → no re-credit.
+    const second = await api(`/api/players/${id}/iap/redeem`, 'POST', body);
+    assert.equal(second.data.alreadyRedeemed, true);
+    assert.equal((await api(`/api/players/${id}`)).data.player.wallet.lumen, before + 500);
   });
 
   test('DURABILITY: state survives a brand-new store over the same database', async () => {

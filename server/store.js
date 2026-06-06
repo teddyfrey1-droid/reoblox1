@@ -18,6 +18,7 @@ import { generateLumi } from '../core/genome.js';
 import { hashString } from '../core/rng.js';
 import { createPity } from '../core/luck.js';
 import { createPassState } from '../core/pass.js';
+import { createSubscription } from '../core/subscription.js';
 
 export class MemoryStore {
   constructor() {
@@ -31,6 +32,8 @@ export class MemoryStore {
     this.trades = new Map();
     /** @type {Map<string, string>} auth identity "provider:subject" -> playerId */
     this.identities = new Map();
+    /** @type {Set<string>} redeemed IAP transaction ids (dedupe: never grant twice) */
+    this.receipts = new Set();
     /** Global, shared world state — the "Great Bloom" meta. */
     this.world = {
       season: 'spring',
@@ -215,6 +218,18 @@ export class MemoryStore {
     return id ? this.players.get(id) || null : null;
   }
 
+  /* ------------------------------ IAP receipts ----------------------------- */
+
+  /** Has this purchase transaction already been redeemed? (idempotency guard) */
+  hasReceipt(transactionId) {
+    return this.receipts.has(transactionId);
+  }
+
+  /** Record a verified receipt so it can never be redeemed again. */
+  recordReceipt(receipt) {
+    this.receipts.add(receipt.transactionId);
+  }
+
   getWorld() {
     return { ...this.world, uptimeMs: Date.now() - this.world.startedAt };
   }
@@ -249,6 +264,7 @@ export function newPlayer(id, handle) {
     bloomdexClaimed: [],
     constellationId: null,
     visitLog: { day: 0, ids: [] }, // once-per-day-per-neighbour visit reward cap
+    subscription: createSubscription(), // "Golden Garden" recurring benefits
   };
 }
 

@@ -28,6 +28,7 @@ import { ensureSchema } from './db.js';
 import { createGarden } from '../core/garden.js';
 import { createPity } from '../core/luck.js';
 import { createPassState } from '../core/pass.js';
+import { createSubscription } from '../core/subscription.js';
 import { levelFromXp } from '../core/progression.js';
 
 const num = (v) => (v == null ? 0 : Number(v));
@@ -67,7 +68,7 @@ export class PgStore {
    * @param {string} method @param {() => any} fn
    */
   withRequest(method, fn) {
-    return this.als.run({ players: new Map(), cons: new Map(), trades: new Map(), identities: [] }, async () => {
+    return this.als.run({ players: new Map(), cons: new Map(), trades: new Map(), identities: [], receipts: [] }, async () => {
       const result = await fn();
       if (method === 'POST') await this._commit();
       return result;
@@ -113,6 +114,18 @@ export class PgStore {
       [provider, subject],
     );
     return r.rows.length ? this.getPlayer(r.rows[0].player_id) : null;
+  }
+
+  /** Idempotency guard: has this purchase transaction already been redeemed? */
+  async hasReceipt(transactionId) {
+    const r = await this.db.query('SELECT 1 FROM iap_receipts WHERE transaction_id = $1', [transactionId]);
+    return r.rows.length > 0;
+  }
+
+  /** Queue a verified receipt; persisted in commit (unique transaction_id dedupes). */
+  recordReceipt(receipt) {
+    const ctx = this._ctx();
+    if (ctx) ctx.receipts.push(receipt);
   }
 
   /** Mutate-only (no DB): push to collection and nudge the shared world. */
@@ -308,6 +321,7 @@ export class PgStore {
       bloomdexClaimed: flags.bloomdexClaimed || [],
       constellationId: flags.constellationId ?? null,
       visitLog: flags.visitLog || { day: 0, ids: [] },
+      subscription: flags.subscription || createSubscription(),
     };
   }
 
@@ -341,6 +355,15 @@ export class PgStore {
           [idn.playerId, idn.provider, idn.subject],
         );
       }
+      // IAP receipts (unique transaction_id is the durable double-redeem guard).
+      for (const rc of ctx.receipts) {
+        await q(
+          `INSERT INTO iap_receipts (player_id, platform, product_id, transaction_id, price_usd_cents, granted_lumen, status)
+           VALUES ($1, $2, $3, $4, $5, $6, 'verified')
+           ON CONFLICT (transaction_id) DO NOTHING`,
+          [rc.playerId, rc.platform, rc.productId, rc.transactionId, rc.priceUsdCents ?? null, rc.grantedLumen ?? null],
+        );
+      }
       for (const c of ctx.cons.values()) await this._saveConstellation(q, c);
       for (const t of ctx.trades.values()) await this._saveTrade(q, t);
       await this._saveWorld(q);
@@ -352,7 +375,7 @@ export class PgStore {
     const flags = {
       unlocks: p.unlocks, stats: p.stats, pity: p.pity, pass: p.pass,
       bloomdexClaimed: p.bloomdexClaimed, constellationId: p.constellationId,
-      visitLog: p.visitLog, createdAt: p.createdAt,
+      visitLog: p.visitLog, subscription: p.subscription, createdAt: p.createdAt,
     };
     await q(
       `INSERT INTO players (id, handle, xp, keeper_level, flags) VALUES ($1, $2, $3, $4, $5::jsonb)

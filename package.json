@@ -1,6 +1,6 @@
 {
   "name": "lumora",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "LUMORA — a cozy social world-restoration game with generative companion creatures (Lumi). Vertical-slice MVP: deterministic game core, HTTP API, and a playable web prototype.",

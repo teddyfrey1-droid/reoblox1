@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 import { MemoryStore } from './store.js';
 import { purchase, grant, debit, EconomyError } from '../core/economy.js';
-import { byId, BIOMES, PLANTS, DECOR, BLOOM_PASS } from '../core/content.js';
+import { byId, BIOMES, PLANTS, DECOR, BLOOM_PASS, IAP_PRODUCTS, productById } from '../core/content.js';
 import * as garden from '../core/garden.js';
 import { generateLumi, breedLumi, decodeSeedCode } from '../core/genome.js';
 import {
@@ -33,7 +33,9 @@ import {
   passView, addPassXp, claimableTiers, claimTier, upgradeToPremium,
 } from '../core/pass.js';
 import { executeTrade, validateTrade } from '../core/trade.js';
+import { extend as extendSub, claimStipend, subscriptionView } from '../core/subscription.js';
 import { createAuth, bearerToken } from './auth.js';
+import { createIapVerifier } from './iap.js';
 import { randomUUID } from 'node:crypto';
 
 const ROOT = join(fileURLToPath(import.meta.url), '..', '..');
@@ -65,6 +67,7 @@ class HttpError extends Error {
 export function createApp(store = new MemoryStore(), opts = {}) {
   const auth = createAuth(opts.secret || process.env.JWT_SIGNING_KEY);
   const requireAuth = !!opts.requireAuth;
+  const iap = createIapVerifier({ testSecret: opts.iapTestSecret || process.env.IAP_TEST_SECRET });
 
   /** @type {Array<{method:string, re:RegExp, fn:Function, requiresSelf:boolean}>} */
   const routes = [];
@@ -101,6 +104,9 @@ export function createApp(store = new MemoryStore(), opts = {}) {
   route('GET', '/api/catalog', () => ({
     biomes: BIOMES, plants: PLANTS, decor: DECOR, bloomPass: BLOOM_PASS,
   }));
+
+  // Real-money product catalog (prices + contents), for the store UI.
+  route('GET', '/api/store/products', () => ({ products: Object.values(IAP_PRODUCTS) }));
 
   // Account-free Lumi preview: powers "try the generator" marketing & onboarding.
   route('GET', '/api/preview/lumi', (_p, _b, q) => {
@@ -356,6 +362,46 @@ export function createApp(store = new MemoryStore(), opts = {}) {
     return { premium: true, wallet: player.wallet, pass: passView(player.pass) };
   });
 
+  /* ----------------------- Monetisation: IAP & subscription ---------------- */
+
+  // Redeem a real-money purchase. Server-verified + idempotent: a transaction id can
+  // only ever grant once, so retries/replays never double-credit (money correctness).
+  route('POST', '/api/players/:id/iap/redeem', async (params, body) => {
+    const player = await store.getPlayer(params.id);
+    const { platform, productId, transactionId, receipt } = body;
+    await iap.verify(platform, productId, transactionId, receipt); // throws typed 4xx/5xx
+    const now = Date.now();
+    if (await store.hasReceipt(transactionId)) {
+      return { alreadyRedeemed: true, wallet: player.wallet, subscription: subscriptionView(player.subscription, now) };
+    }
+    const product = productById(productId);
+    let grantedLumen = 0;
+    if (product.kind === 'lumen') {
+      grantedLumen = grant(player.wallet, { lumen: product.lumen }, `iap:${productId}`, player.ledger).lumen;
+    } else if (product.kind === 'subscription') {
+      extendSub(player.subscription, product.tier, product.durationDays, now);
+    }
+    store.recordReceipt({ transactionId, platform, productId, playerId: player.id, priceUsdCents: product.usdCents, grantedLumen });
+    return {
+      redeemed: true, product: productId, grantedLumen,
+      wallet: player.wallet, subscription: subscriptionView(player.subscription, now),
+    };
+  });
+
+  route('GET', '/api/players/:id/subscription', async (params) => {
+    const player = await store.getPlayer(params.id);
+    return { subscription: subscriptionView(player.subscription, Date.now()) };
+  });
+
+  // Claim the Golden Garden daily Lumen stipend (once per day while subscribed).
+  route('POST', '/api/players/:id/subscription/stipend', async (params) => {
+    const player = await store.getPlayer(params.id);
+    const res = claimStipend(player.subscription, Date.now());
+    if (!res.claimed) throw new HttpError(400, 'NO_STIPEND', 'No stipend available (inactive or already claimed today)');
+    grant(player.wallet, { lumen: res.lumen }, 'sub_stipend', player.ledger);
+    return { claimed: true, lumen: res.lumen, wallet: player.wallet };
+  });
+
   /* ----------------------------- Constellations ---------------------------- */
 
   route('GET', '/api/constellations', async () => ({ constellations: await store.listConstellations() }));
@@ -502,6 +548,7 @@ function publicPlayer(p) {
     stats: p.stats,
     pass: passView(p.pass),
     constellationId: p.constellationId,
+    subscription: subscriptionView(p.subscription, Date.now()),
   };
 }
 

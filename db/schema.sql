@@ -217,7 +217,7 @@ CREATE INDEX trades_to_idx ON trades (to_id, status);
 CREATE TABLE iap_receipts (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     player_id     UUID NOT NULL REFERENCES players(id),
-    platform      TEXT NOT NULL CHECK (platform IN ('apple','google','stripe')),
+    platform      TEXT NOT NULL CHECK (platform IN ('apple','google','stripe','test')),
     product_id    TEXT NOT NULL,
     transaction_id TEXT UNIQUE NOT NULL,           -- dedupe: never grant twice
     price_usd_cents INT,

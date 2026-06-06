@@ -126,3 +126,23 @@ export const BLOOM_PASS = {
     { tier: 50, free: { lumen: 120 }, premium: { cosmetic: 'mythic_aura_trail', lumi: 'seasonal_exclusive' } },
   ],
 };
+
+/**
+ * Real-money store products (validated server-side, see docs/06-MONETIZATION.md).
+ * `lumen` products are consumable Lumen packs (with marketing "bonus" baked into the
+ * amount); `subscription` is the recurring "Golden Garden" — pure convenience &
+ * expression benefits, never power, so it stays non-pay-to-win.
+ */
+export const IAP_PRODUCTS = {
+  lumen_pouch: { id: 'lumen_pouch', kind: 'lumen', lumen: 500, usdCents: 499 },
+  lumen_satchel: { id: 'lumen_satchel', kind: 'lumen', lumen: 1200, usdCents: 999 },
+  lumen_chest: { id: 'lumen_chest', kind: 'lumen', lumen: 2800, usdCents: 1999 },
+  golden_garden: {
+    id: 'golden_garden', kind: 'subscription', tier: 'golden_garden',
+    durationDays: 30, usdCents: 499,
+    benefits: { dailyLumenStipend: 30, extraPlots: 1, doubleQuests: true },
+  },
+};
+
+/** Lookup helper for store products. */
+export const productById = (id) => IAP_PRODUCTS[id] || null;
