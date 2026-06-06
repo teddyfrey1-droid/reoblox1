@@ -35,12 +35,18 @@ if (process.env.DATABASE_URL) {
   demoNote = `  ─ Store:             in-memory (set DATABASE_URL for durable Postgres)\n  ─ Demo player id:    ${demo.id} (handle "${demo.handle}")\n`;
 }
 
-const server = createServer(createApp(store));
+// Auth is enforced in the running server. Set JWT_SIGNING_KEY so tokens survive
+// restarts and span instances; without it we use a random per-process key (dev only).
+if (!process.env.JWT_SIGNING_KEY) {
+  console.warn('  ⚠ JWT_SIGNING_KEY not set — using an ephemeral key (tokens reset on restart).');
+}
+const server = createServer(createApp(store, { requireAuth: true, secret: process.env.JWT_SIGNING_KEY }));
 
 server.listen(PORT, () => {
   console.log('\n  🌱 LUMORA dev server');
   console.log(`  ─ API + prototype:  http://localhost:${PORT}`);
   console.log(`  ─ Try the generator: http://localhost:${PORT}/api/preview/lumi?biome=nocturne`);
+  console.log('  ─ Auth:             Bearer tokens required on per-account routes');
   process.stdout.write(demoNote + '\n');
 });
 

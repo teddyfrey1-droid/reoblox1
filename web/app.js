@@ -22,6 +22,8 @@ const ELEMENT_EMOJI = { sun: '☀️', moon: '🌙', water: '💧', earth: '🌿
 
 const state = {
   pid: localStorage.getItem('lumora_pid') || null,
+  token: localStorage.getItem('lumora_token') || null,
+  deviceId: localStorage.getItem('lumora_device') || null,
   player: null,
   catalog: null,
   collection: [],
@@ -30,13 +32,12 @@ const state = {
 
 /* ------------------------------ API helpers ------------------------------ */
 async function api(path, method = 'GET', body) {
-  const res = await fetch(path, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const headers = {};
+  if (body) headers['Content-Type'] = 'application/json';
+  if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+  const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data?.error?.message || res.statusText), { code: data?.error?.code });
+  if (!res.ok) throw Object.assign(new Error(data?.error?.message || res.statusText), { code: data?.error?.code, status: res.status });
   return data;
 }
 
@@ -50,18 +51,23 @@ function toast(msg, ms = 2200) {
 
 /* ------------------------------- bootstrap ------------------------------- */
 async function boot() {
-  // Get or create a player and remember it across reloads.
-  if (state.pid) {
-    try { state.player = (await api(`/api/players/${state.pid}`)).player; }
-    catch { state.pid = null; }
+  // Try to resume the existing session; if the token is missing/expired, re-auth
+  // as a guest using the stored device id (so the same account is recovered).
+  let resumed = false;
+  if (state.pid && state.token) {
+    try { state.player = (await api(`/api/players/${state.pid}`)).player; resumed = true; }
+    catch (e) { if (e.status === 401) { state.token = null; } }
   }
-  if (!state.pid) {
-    const handle = 'keeper_' + Math.random().toString(36).slice(2, 7);
-    const r = await api('/api/players', 'POST', { handle });
+  if (!resumed) {
+    const r = await api('/api/auth/guest', 'POST', state.deviceId ? { deviceId: state.deviceId } : {});
     state.pid = r.player.id;
+    state.token = r.token;
+    state.deviceId = r.deviceId;
     localStorage.setItem('lumora_pid', state.pid);
+    localStorage.setItem('lumora_token', state.token);
+    localStorage.setItem('lumora_device', state.deviceId);
     state.player = r.player;
-    toast(`Welcome, ${handle}! Two starter Lumi await in your Collection.`);
+    if (r.created) toast('Welcome to LUMORA! Two starter Lumi await in your Collection.');
   }
   state.catalog = (await api('/api/catalog'));
   syncHeader();

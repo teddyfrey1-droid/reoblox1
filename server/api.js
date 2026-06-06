@@ -33,6 +33,8 @@ import {
   passView, addPassXp, claimableTiers, claimTier, upgradeToPremium,
 } from '../core/pass.js';
 import { executeTrade, validateTrade } from '../core/trade.js';
+import { createAuth, bearerToken } from './auth.js';
+import { randomUUID } from 'node:crypto';
 
 const ROOT = join(fileURLToPath(import.meta.url), '..', '..');
 
@@ -56,14 +58,22 @@ class HttpError extends Error {
 /**
  * Build the request handler around a store instance (injectable for tests).
  * @param {MemoryStore} store
+ * @param {{requireAuth?: boolean, secret?: string}} [opts]
+ *   requireAuth — enforce Bearer-token auth on per-account routes (on in production).
+ *   secret — HMAC signing key (else JWT_SIGNING_KEY env, else a random per-process key).
  */
-export function createApp(store = new MemoryStore()) {
-  /** @type {Array<{method:string, re:RegExp, fn:Function}>} */
+export function createApp(store = new MemoryStore(), opts = {}) {
+  const auth = createAuth(opts.secret || process.env.JWT_SIGNING_KEY);
+  const requireAuth = !!opts.requireAuth;
+
+  /** @type {Array<{method:string, re:RegExp, fn:Function, requiresSelf:boolean}>} */
   const routes = [];
   const route = (method, pattern, fn) => {
     // Convert "/api/players/:id/garden" → regex with named groups.
     const re = new RegExp('^' + pattern.replace(/:[^/]+/g, (m) => `(?<${m.slice(1)}>[^/]+)`) + '/?$');
-    routes.push({ method, re, fn });
+    // Any route carrying a player :id is per-account and requires the caller's token
+    // subject to equal that id (you can only act on your own account).
+    routes.push({ method, re, fn, requiresSelf: pattern.includes(':id') });
   };
 
   /**
@@ -121,7 +131,27 @@ export function createApp(store = new MemoryStore()) {
       throw new HttpError(400, 'BAD_HANDLE', 'Handle must be 3-20 word characters');
     }
     const player = await store.createPlayer(handle);
-    return { player: publicPlayer(player) };
+    // Issue a session token so the creator can immediately act as this player.
+    return { player: publicPlayer(player), token: auth.sign(player.id) };
+  });
+
+  // Anonymous/guest auth: a device gets (or recovers) its player + a fresh token.
+  // Returning users pass the deviceId they stored last time to get the same account.
+  route('POST', '/api/auth/guest', async (_p, body) => {
+    const provider = 'device';
+    const subject = (typeof body.deviceId === 'string' && /^[\w-]{8,128}$/.test(body.deviceId))
+      ? body.deviceId
+      : randomUUID();
+    let player = await store.getPlayerByIdentity(provider, subject);
+    let created = false;
+    if (!player) {
+      // Collision-resistant guest handle (alphanumeric, valid by our handle rules).
+      const handle = ('g' + randomUUID().replace(/-/g, '')).slice(0, 18);
+      player = await store.createPlayer(handle);
+      await store.linkIdentity(provider, subject, player.id);
+      created = true;
+    }
+    return { player: publicPlayer(player), token: auth.sign(player.id), deviceId: subject, created };
   });
 
   route('GET', '/api/players/:id', async (params) => {
@@ -424,6 +454,13 @@ export function createApp(store = new MemoryStore()) {
         const match = routes.find((r) => r.method === req.method && r.re.test(url.pathname));
         if (!match) throw new HttpError(404, 'NO_ROUTE', `No route for ${req.method} ${url.pathname}`);
         const params = url.pathname.match(match.re)?.groups || {};
+        // Per-account routes require a valid Bearer token whose subject is this id.
+        if (requireAuth && match.requiresSelf) {
+          const payload = auth.verify(bearerToken(req));
+          if (payload.sub !== params.id) {
+            throw new HttpError(403, 'FORBIDDEN', 'You can only act on your own account');
+          }
+        }
         const body = req.method === 'POST' ? await readJson(req) : {};
         // Run the handler inside the store's per-request unit of work. For PgStore
         // this loads/commits a transaction; for MemoryStore it just runs the handler.
@@ -488,7 +525,7 @@ function clampNum(raw, min, max, dflt) {
 function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
 function send(res, status, body, headers = {}) {

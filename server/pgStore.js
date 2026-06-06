@@ -67,7 +67,7 @@ export class PgStore {
    * @param {string} method @param {() => any} fn
    */
   withRequest(method, fn) {
-    return this.als.run({ players: new Map(), cons: new Map(), trades: new Map() }, async () => {
+    return this.als.run({ players: new Map(), cons: new Map(), trades: new Map(), identities: [] }, async () => {
       const result = await fn();
       if (method === 'POST') await this._commit();
       return result;
@@ -98,6 +98,21 @@ export class PgStore {
   async getPlayerByHandle(handle) {
     const r = await this.db.query('SELECT id FROM players WHERE handle = $1', [handle]);
     return r.rows.length ? this.getPlayer(r.rows[0].id) : null;
+  }
+
+  /** Queue an auth identity link; persisted in commit (after the player row exists). */
+  linkIdentity(provider, subject, playerId) {
+    const ctx = this._ctx();
+    if (ctx) ctx.identities.push({ provider, subject, playerId });
+  }
+
+  /** Resolve a provider identity to its player (or null). */
+  async getPlayerByIdentity(provider, subject) {
+    const r = await this.db.query(
+      'SELECT player_id FROM auth_identities WHERE provider = $1 AND subject = $2',
+      [provider, subject],
+    );
+    return r.rows.length ? this.getPlayer(r.rows[0].player_id) : null;
   }
 
   /** Mutate-only (no DB): push to collection and nudge the shared world. */
@@ -318,6 +333,14 @@ export class PgStore {
       for (const p of ctx.players.values()) await q('DELETE FROM lumi WHERE owner_id = $1', [p.id]);
       // Phase 2: upsert players (+children) and re-insert their Lumi.
       for (const p of ctx.players.values()) await this._savePlayer(q, p);
+      // Identities AFTER players so the player_id FK is satisfied within the tx.
+      for (const idn of ctx.identities) {
+        await q(
+          `INSERT INTO auth_identities (player_id, provider, subject) VALUES ($1, $2, $3)
+           ON CONFLICT (provider, subject) DO NOTHING`,
+          [idn.playerId, idn.provider, idn.subject],
+        );
+      }
       for (const c of ctx.cons.values()) await this._saveConstellation(q, c);
       for (const t of ctx.trades.values()) await this._saveTrade(q, t);
       await this._saveWorld(q);

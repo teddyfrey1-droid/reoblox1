@@ -29,6 +29,8 @@ export class MemoryStore {
     this.constellations = new Map();
     /** @type {Map<string, object>} */
     this.trades = new Map();
+    /** @type {Map<string, string>} auth identity "provider:subject" -> playerId */
+    this.identities = new Map();
     /** Global, shared world state — the "Great Bloom" meta. */
     this.world = {
       season: 'spring',
@@ -198,6 +200,19 @@ export class MemoryStore {
 
   listIncomingTrades(playerId) {
     return [...this.trades.values()].filter((t) => t.toId === playerId && t.status === 'open');
+  }
+
+  /* ----------------------------- auth identities --------------------------- */
+
+  /** Link a provider identity (e.g. device id) to a player, for returning logins. */
+  linkIdentity(provider, subject, playerId) {
+    this.identities.set(`${provider}:${subject}`, playerId);
+  }
+
+  /** Resolve a provider identity to its player (or null). */
+  getPlayerByIdentity(provider, subject) {
+    const id = this.identities.get(`${provider}:${subject}`);
+    return id ? this.players.get(id) || null : null;
   }
 
   getWorld() {
