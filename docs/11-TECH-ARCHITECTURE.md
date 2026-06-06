@@ -127,9 +127,32 @@ flowchart LR
   (PGlite/Postgres scratch — déjà prouvé faisable dans ce dépôt) ; *canary releases*.
 - **DR/Backups** : sauvegardes PG *point-in-time*, *runbooks* live-ops, plan de bascule région.
 
+## Persistance : `MemoryStore` ⇄ `PgStore` (implémenté)
+
+Deux implémentations partagent **la même interface** ; l'API (`server/api.js`) est identique
+pour les deux (`server/store.js` choisi par défaut, `server/pgStore.js` si `DATABASE_URL`).
+
+- **Unité de travail par requête** (`AsyncLocalStorage`) : pendant une requête, `getPlayer`/
+  `createPlayer`/`getConstellation`/`getTrade` hydratent les entités dans une *identity map* ;
+  les handlers mutent ces objets vivants exactement comme en mémoire ; après une requête POST
+  réussie, `commit()` réécrit toutes les entités touchées dans **une transaction** (un échec de
+  handler saute le commit → aucune écriture partielle). Les GET ne persistent jamais.
+- **Mapping relationnel** (cf. [`db/schema.sql`](../db/schema.sql)) : players + wallets +
+  daily_streaks + gardens + lumi + economy_ledger + constellations(+members) + trades +
+  world_state. Le détail de progression par joueur (pity, pass, unlocks, stats, bloomdex,
+  guilde) vit dans `players.flags` JSONB ; le génome résolu est persisté (les Lumi *issus de
+  reproduction* ne sont pas reproductibles depuis la seule graine).
+- **Adaptateur DB unique** (`server/db.js`) : `query`/`exec`/`tx`/`close` au-dessus de **PGlite**
+  (tests/CI, Postgres WASM embarqué) **ou** `pg.Pool` (production, dépendance optionnelle).
+- **Durabilité prouvée** : `test/pgstore.test.js` rejoue les flux de bout en bout contre un vrai
+  moteur Postgres et vérifie que l'état survit à **une instance de store toute neuve** sur la même base.
+
 ## Dette technique connue du prototype (assumée)
 
-- Store en mémoire (pas de durabilité) → remplacé par l'implémentation Postgres de l'interface.
-- Auth stub (id en chemin) → remplacée par jetons signés.
+- ~~Store en mémoire (pas de durabilité)~~ → **fait** : `PgStore` relationnel + test de durabilité.
+- Auth stub (id en chemin) → à remplacer par des jetons signés.
+- `commit` réécrit la collection d'un joueur par DELETE+INSERT (simple et correct ; à rendre
+  incrémental pour de très grandes collections en production).
+- Compteur mondial (Great Bloom) en mémoire de processus → à déplacer vers Redis (INCR) à l'échelle.
 - Pas de temps réel/WebSocket (le social est REST) → ajouté en bêta.
 - Génome v1 (`schema:1`) versionné → migrations gérées par le champ `schema`.

@@ -17,15 +17,20 @@ jouable qui dessine chaque créature à partir de son génome.
 ## 🚀 Démarrer en 30 secondes
 
 ```bash
-npm start          # API + prototype sur http://localhost:8787
-npm test           # 55 tests du cœur de jeu + intégration API
+npm start          # API + prototype sur http://localhost:8787 (store en mémoire)
+npm test           # 61 tests : cœur + intégration API + durabilité PostgreSQL
 npm run sim        # simulation d'équilibrage → docs/BALANCE-REPORT.md
 npm run gallery    # régénère la galerie de Lumi (SVG)
 npm run seed:demo  # affiche un échantillon de créatures générées
+
+# Mode durable (PostgreSQL) — les données survivent aux redémarrages :
+DATABASE_URL=postgres://user:pass@localhost:5432/lumora npm start
 ```
 
-Aucune dépendance d'exécution n'est requise (Node ≥ 20, modules natifs uniquement).
-Ouvrez ensuite `http://localhost:8787` et essayez l'onglet **✨ Generator**.
+**Dépendances :** le *runtime* par défaut (mode mémoire) ne requiert **aucune dépendance**
+(Node ≥ 20, modules natifs). Le mode Postgres utilise `pg` (dépendance *optionnelle*,
+chargée à la demande). Les tests/outils utilisent des *devDependencies* (PGlite, etc.).
+Ouvrez `http://localhost:8787` et essayez l'onglet **✨ Generator**.
 
 ![Prototype jouable LUMORA](docs/assets/prototype.png)
 
@@ -38,11 +43,11 @@ Generator, Collection, Bloom Ritual et le monde partagé Great Bloom.*
 |---|---|
 | [`docs/`](docs/) | **Le dossier de production** — 15 documents + GDD + PRD + OpenAPI + rapport d'équilibrage |
 | [`core/`](core/) | Le **cœur de jeu** pur et déterministe (genome, économie, progression, jardin, pity, bloomdex, pass, trade) |
-| [`server/`](server/) | API HTTP (module `http` natif) + store en mémoire (interface ⇒ Postgres) |
+| [`server/`](server/) | API HTTP (module `http` natif) + **2 stores** : `MemoryStore` et `PgStore` (PostgreSQL réel) derrière la même interface |
 | [`web/`](web/) | Prototype jouable (canvas) + **moteur de rendu procédural** des Lumi |
-| [`db/`](db/schema.sql) | Schéma PostgreSQL de production (validé) |
+| [`db/`](db/schema.sql) | Schéma PostgreSQL de production (validé + utilisé par `PgStore`) |
 | [`tools/`](tools/) | Export SVG, **simulation d'équilibrage**, captures headless |
-| [`test/`](test/) | Suite de tests `node --test` (**55 tests**, cœur + intégration API) |
+| [`test/`](test/) | Suite de tests `node --test` (**61 tests** : cœur + intégration API + durabilité PostgreSQL) |
 
 ## 🧬 La pièce maîtresse : le système génératif des Lumi
 
@@ -86,9 +91,10 @@ Détails : [`docs/11-TECH-ARCHITECTURE.md`](docs/11-TECH-ARCHITECTURE.md).
 - [x] API HTTP complète + onboarding + social + intégration **en process** — **testé**
 - [x] Prototype web jouable + **rendu procédural par forme** — **vérifié (capture Chromium)**
 - [x] Schéma PostgreSQL — **validé** (appliqué sur un vrai moteur)
+- [x] **Persistance PostgreSQL réelle** (`server/pgStore.js`) — **durabilité prouvée** : l'état survit à une instance de store fraîche (`test/pgstore.test.js` sur PGlite)
 - [x] **Simulation d'équilibrage** pilotée par données → [`BALANCE-REPORT.md`](docs/BALANCE-REPORT.md)
 - [x] **OpenAPI** ([`docs/openapi.yaml`](docs/openapi.yaml), 32 opérations)
-- [ ] Auth réelle, persistance Postgres, temps réel, client moteur (Godot) — *roadmap*
+- [ ] Auth réelle (jetons signés), temps réel (WebSocket), client moteur (Godot) — *roadmap*
 
 ## 📜 Licence
 

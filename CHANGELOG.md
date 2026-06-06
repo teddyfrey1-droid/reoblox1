@@ -2,6 +2,32 @@
 
 All notable changes to the LUMORA prototype are documented here.
 
+## [0.3.0] — Real PostgreSQL persistence (durability proven)
+
+### Added
+- **`PgStore`** (`server/pgStore.js`): a durable, relational PostgreSQL implementation
+  of the store interface, mapping `db/schema.sql` (players, wallets, daily_streaks,
+  gardens, lumi, economy_ledger, constellations(+members), trades, world_state).
+- **Per-request unit of work** via `AsyncLocalStorage`: entities hydrate into a
+  request-scoped identity map; a successful POST commits all touched entities in one
+  transaction; reads never persist; handler errors skip the commit (no partial writes).
+- **DB adapter** (`server/db.js`): one `query/exec/tx/close` interface over PGlite
+  (tests/CI) and `pg.Pool` (production, lazy-imported optional dependency), plus
+  `applySchema`/`ensureSchema`.
+- **`test/pgstore.test.js`**: runs the API end-to-end against a real Postgres engine
+  (PGlite) and proves **durability** — committed state survives a brand-new store
+  instance over the same database. Suite: 55 → **61 passing tests**.
+
+### Changed
+- Store interface is now async; `server/api.js` handlers `await` store calls and run
+  inside `store.withRequest(...)`. The `MemoryStore` path is unchanged in behaviour
+  (its `withRequest` is a no-op; it keeps live-reference semantics).
+- `server/index.js` selects the store by `DATABASE_URL` (Postgres) else in-memory +
+  demo world. `db/schema.sql`: added `lumi.genome` JSONB and a `UNIQUE(player_id)` on
+  gardens to support clean upserts. CI now `npm install`s so the PgStore test runs.
+- The player-object shape is now built by a shared `newPlayer()`/`starterLumi()`
+  factory used by both stores (single source of truth).
+
 ## [0.2.0] — Quality pass: deeper systems, data-driven balance, visual proof
 
 ### Added — game systems (all unit-tested)

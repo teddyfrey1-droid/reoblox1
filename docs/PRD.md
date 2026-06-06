@@ -122,8 +122,8 @@ complète sans blocage, signaux de rétention interne encourageants.
 ## 6. Critères de sortie du MVP (Definition of Done)
 
 1. Boucle complète jouable sur device (Godot) sans blocage.
-2. Backend Postgres déployé ; auth réelle ; télémétrie active.
-3. Suite de tests cœur **verte** en CI ; schéma SQL validé en CI.
+2. Backend Postgres déployé (**store relationnel prototypé et testé** : `server/pgStore.js`) ; auth réelle ; télémétrie active.
+3. Suite de tests **verte** en CI (cœur + intégration API + durabilité PostgreSQL) ; schéma SQL validé en CI.
 4. *Crash-free* > 99 % en *playtest* ; perf cibles atteintes.
 5. *Playtests* qualitatifs : la boucle est jugée « fun » et claire par > 70 % des testeurs.
 
@@ -138,3 +138,4 @@ complète sans blocage, signaux de rétention interne encourageants.
 | EF-5 économie / Bloom Pass | `core/economy.js`, `core/pass.js` | `test/economy.test.js`, `test/pass.test.js` |
 | EF-6/EF-7 rétention/progression | `core/progression.js`, `core/content.js` | `test/progression.test.js` |
 | EF-8 social / échanges | `server/store.js`, `core/trade.js`, `server/api.js` | `test/trade.test.js`, `test/api.test.js` |
+| Persistance durable (PostgreSQL) | `server/pgStore.js`, `server/db.js`, `db/schema.sql` | `test/pgstore.test.js` (durabilité) |
