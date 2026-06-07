@@ -13,7 +13,10 @@ Demandez ces éléments à l'utilisateur et **arrêtez-vous** s'ils manquent :
 
 1. **Hébergeur + jeton d'API.** Recommandé : **Fly.io** (CLI scriptable + Postgres managé).
    - Compte Fly.io créé (carte ajoutée, même pour le palier gratuit).
-   - `FLY_API_TOKEN` (Fly.io → Account → Access Tokens). *Alternatives : Railway (`RAILWAY_TOKEN`), Render.*
+   - **`FLY_API_TOKEN` = un token de type _Org_** (Fly.io → *Tokens* / *Account → Access Tokens* →
+     **Org token**, sélectionner votre org « personal »). ⚠️ **PAS un _App token_** : il est limité à
+     une app existante et ne peut **ni créer l'app ni créer la base** (étape 3 échouerait). Un
+     *Personal Access Token* « full » convient aussi. *Alternatives : Railway (`RAILWAY_TOKEN`), Render.*
 2. **(Optionnel, pour encaisser)** Compte **Stripe** + `STRIPE_SECRET_KEY` (plus tard le `whsec_…`).
 3. **(Optionnel)** Un **nom de domaine** si vous en voulez un personnalisé.
 
@@ -42,8 +45,8 @@ echo "JWT_SIGNING_KEY=$JWT_SIGNING_KEY"   # à conserver précieusement (secret,
 ```bash
 curl -L https://fly.io/install.sh | sh
 export FLYCTL_INSTALL="$HOME/.fly"; export PATH="$FLYCTL_INSTALL/bin:$PATH"
-flyctl auth token "$FLY_API_TOKEN"        # utilise le jeton fourni par l'humain
-flyctl auth whoami                        # vérif : affiche l'email du compte
+export FLY_API_TOKEN="<le token Org fourni par l'humain>"   # flyctl lit cette variable automatiquement
+flyctl auth whoami                        # vérif : affiche l'email du compte (n'exécutez PAS `auth token`)
 ```
 
 ### 3. Créer l'app + la base Postgres
