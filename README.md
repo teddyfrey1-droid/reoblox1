@@ -108,6 +108,12 @@ Détails : [`docs/11-TECH-ARCHITECTURE.md`](docs/11-TECH-ARCHITECTURE.md).
 - [x] **OpenAPI** ([`docs/openapi.yaml`](docs/openapi.yaml))
 - [ ] Branchement réseau Apple/Google (transport prod), fan-out Redis multi-instances, client moteur (Godot) — *roadmap*
 
+## 🚀 Mettre en ligne
+
+Guide pas à pas (Docker, variables d'env, Postgres, Stripe, TLS/WSS, smoke test) :
+**[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)**. Un [`Dockerfile`](Dockerfile) est fourni
+(`docker build -t lumora . && docker run -p 80:8787 -e NODE_ENV=production -e JWT_SIGNING_KEY=… lumora`).
+
 ## 📜 Licence
 
 Voir [`LICENSE`](LICENSE) — prototype propriétaire, évaluation interne.
