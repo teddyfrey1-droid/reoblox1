@@ -45,7 +45,14 @@ if (!process.env.JWT_SIGNING_KEY) {
 }
 const secret = process.env.JWT_SIGNING_KEY || randomBytes(32).toString('hex');
 const realtime = createRealtime({ secret });
-const server = createServer(createApp(store, { requireAuth: true, secret, realtime }));
+const server = createServer(createApp(store, {
+  requireAuth: true,
+  secret,
+  realtime,
+  // Real-money verification (all optional; absent → those paths 501 until configured):
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET, // POST /api/webhooks/stripe
+  // iapTransport: wire App Store Server API / Play Developer API here for apple/google.
+}));
 await realtime.attach(server);
 
 server.listen(PORT, () => {

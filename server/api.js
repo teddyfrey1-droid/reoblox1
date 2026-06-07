@@ -35,7 +35,7 @@ import {
 import { executeTrade, validateTrade } from '../core/trade.js';
 import { extend as extendSub, claimStipend, subscriptionView } from '../core/subscription.js';
 import { createAuth, bearerToken } from './auth.js';
-import { createIapVerifier } from './iap.js';
+import { createIapVerifier, verifyStripeSignature } from './iap.js';
 import { randomUUID } from 'node:crypto';
 
 const ROOT = join(fileURLToPath(import.meta.url), '..', '..');
@@ -67,7 +67,11 @@ class HttpError extends Error {
 export function createApp(store = new MemoryStore(), opts = {}) {
   const auth = createAuth(opts.secret || process.env.JWT_SIGNING_KEY);
   const requireAuth = !!opts.requireAuth;
-  const iap = createIapVerifier({ testSecret: opts.iapTestSecret || process.env.IAP_TEST_SECRET });
+  const iap = createIapVerifier({
+    testSecret: opts.iapTestSecret || process.env.IAP_TEST_SECRET,
+    transport: opts.iapTransport, // real Apple/Google verification transport (prod); fake in tests
+  });
+  const stripeWebhookSecret = opts.stripeWebhookSecret || process.env.STRIPE_WEBHOOK_SECRET || null;
   const rt = opts.realtime || null; // optional real-time hub (no-op if absent)
 
   /** @type {Array<{method:string, re:RegExp, fn:Function, requiresSelf:boolean}>} */
@@ -95,6 +99,61 @@ export function createApp(store = new MemoryStore(), opts = {}) {
     // Live Great-Bloom tick to all connected clients (the shared-world meta moving).
     if (rt) rt.broadcastWorld({ bloomLevel: store.world.bloomLevel, totalLumiHatched: store.world.totalLumiHatched });
     return { unlocked: xp.unlocked, pass: passView(player.pass), tiersGained: passRes.tiersGained };
+  }
+
+  /** Apply a purchased product to a player (shared by the redeem route + Stripe webhook). */
+  function grantProduct(player, product) {
+    if (product.kind === 'lumen') {
+      return grant(player.wallet, { lumen: product.lumen }, `iap:${product.id}`, player.ledger).lumen;
+    }
+    if (product.kind === 'subscription') {
+      extendSub(player.subscription, product.tier, product.durationDays, Date.now());
+    }
+    return 0;
+  }
+
+  /**
+   * Stripe webhook: verify the signature over the RAW body, then idempotently grant
+   * (dedupe by Stripe event id). Stripe authenticates itself via the signature, so
+   * this route takes no Bearer token. Always 2xx for accepted-but-ignored events so
+   * Stripe doesn't retry forever.
+   */
+  async function handleStripeWebhook(req, res) {
+    let raw;
+    try {
+      raw = await readRawBody(req);
+      verifyStripeSignature(raw, req.headers['stripe-signature'], stripeWebhookSecret);
+    } catch (e) {
+      return sendError(res, e);
+    }
+    let event;
+    try { event = JSON.parse(raw); } catch { return sendError(res, new HttpError(400, 'BAD_JSON', 'Body is not JSON')); }
+    try {
+      const result = await store.withRequest('POST', () => processStripeEvent(event));
+      return sendJson(res, 200, result);
+    } catch (e) {
+      return sendError(res, e);
+    }
+  }
+
+  async function processStripeEvent(event) {
+    const HANDLED = ['checkout.session.completed', 'payment_intent.succeeded'];
+    if (!event || !HANDLED.includes(event.type)) return { received: true, ignored: event && event.type };
+    const obj = (event.data && event.data.object) || {};
+    const md = obj.metadata || {};
+    const product = productById(md.productId);
+    if (!md.playerId || !product) return { received: true, ignored: 'missing/invalid metadata' };
+    // Idempotency: dedupe by the Stripe event id (replays never double-grant).
+    if (await store.hasReceipt(event.id)) return { received: true, duplicate: true };
+    let player;
+    try {
+      player = await store.getPlayer(md.playerId);
+    } catch {
+      return { received: true, ignored: 'unknown player' }; // 200 so Stripe stops retrying
+    }
+    const grantedLumen = grantProduct(player, product);
+    store.recordReceipt({ transactionId: event.id, platform: 'stripe', productId: product.id, playerId: player.id, priceUsdCents: product.usdCents, grantedLumen });
+    return { received: true, granted: product.id, playerId: player.id };
   }
 
   /* ----------------------------- public / meta ----------------------------- */
@@ -374,21 +433,18 @@ export function createApp(store = new MemoryStore(), opts = {}) {
   route('POST', '/api/players/:id/iap/redeem', async (params, body) => {
     const player = await store.getPlayer(params.id);
     const { platform, productId, transactionId, receipt } = body;
-    await iap.verify(platform, productId, transactionId, receipt); // throws typed 4xx/5xx
+    const verified = await iap.verify(platform, productId, transactionId, receipt); // throws typed 4xx/5xx
     const now = Date.now();
-    if (await store.hasReceipt(transactionId)) {
+    // Trust the provider-AUTHORITATIVE product/transaction, not the client's claim.
+    const txId = verified.transactionId;
+    if (await store.hasReceipt(txId)) {
       return { alreadyRedeemed: true, wallet: player.wallet, subscription: subscriptionView(player.subscription, now) };
     }
-    const product = productById(productId);
-    let grantedLumen = 0;
-    if (product.kind === 'lumen') {
-      grantedLumen = grant(player.wallet, { lumen: product.lumen }, `iap:${productId}`, player.ledger).lumen;
-    } else if (product.kind === 'subscription') {
-      extendSub(player.subscription, product.tier, product.durationDays, now);
-    }
-    store.recordReceipt({ transactionId, platform, productId, playerId: player.id, priceUsdCents: product.usdCents, grantedLumen });
+    const product = productById(verified.productId);
+    const grantedLumen = grantProduct(player, product);
+    store.recordReceipt({ transactionId: txId, platform, productId: product.id, playerId: player.id, priceUsdCents: product.usdCents, grantedLumen });
     return {
-      redeemed: true, product: productId, grantedLumen,
+      redeemed: true, product: product.id, grantedLumen,
       wallet: player.wallet, subscription: subscriptionView(player.subscription, now),
     };
   });
@@ -499,6 +555,12 @@ export function createApp(store = new MemoryStore(), opts = {}) {
     setCors(res);
     if (req.method === 'OPTIONS') return send(res, 204, '');
 
+    // Stripe webhook: needs the RAW body for signature verification + no Bearer token
+    // (Stripe authenticates via the signature), so it bypasses JSON parsing & auth.
+    if (req.method === 'POST' && url.pathname === '/api/webhooks/stripe') {
+      return handleStripeWebhook(req, res);
+    }
+
     // API routing
     if (url.pathname.startsWith('/api/')) {
       try {
@@ -601,6 +663,18 @@ function sendError(res, err) {
 
 /** Max accepted request body. Guards against unbounded-body memory exhaustion. */
 const MAX_BODY_BYTES = 512 * 1024;
+
+/** Read the raw request body as a string (capped). Needed for signature verification. */
+async function readRawBody(req) {
+  const chunks = [];
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    if (size > MAX_BODY_BYTES) throw new HttpError(413, 'BODY_TOO_LARGE', 'Request body too large');
+    chunks.push(c);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 async function readJson(req) {
   const chunks = [];
