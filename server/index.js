@@ -49,6 +49,12 @@ const server = createServer(createApp(store, {
   requireAuth: true,
   secret,
   realtime,
+  // Abuse protection: 300 req/min/IP globally, tighter on sensitive endpoints.
+  rateLimit: {
+    windowMs: 60_000,
+    max: Number(process.env.RATE_LIMIT_MAX) || 300,
+    sensitiveMax: Number(process.env.RATE_LIMIT_SENSITIVE_MAX) || 30,
+  },
   // Real-money verification (all optional; absent → those paths 501 until configured):
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET, // POST /api/webhooks/stripe
   // iapTransport: wire App Store Server API / Play Developer API here for apple/google.

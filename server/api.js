@@ -36,6 +36,7 @@ import { executeTrade, validateTrade } from '../core/trade.js';
 import { extend as extendSub, claimStipend, subscriptionView } from '../core/subscription.js';
 import { createAuth, bearerToken } from './auth.js';
 import { createIapVerifier, verifyStripeSignature } from './iap.js';
+import { createRateLimiter } from './ratelimit.js';
 import { randomUUID } from 'node:crypto';
 
 const ROOT = join(fileURLToPath(import.meta.url), '..', '..');
@@ -73,6 +74,14 @@ export function createApp(store = new MemoryStore(), opts = {}) {
   });
   const stripeWebhookSecret = opts.stripeWebhookSecret || process.env.STRIPE_WEBHOOK_SECRET || null;
   const rt = opts.realtime || null; // optional real-time hub (no-op if absent)
+
+  // Optional rate limiting (off by default). A global per-IP bucket + a stricter one
+  // for sensitive endpoints (auth/account creation/purchases).
+  const limiter = opts.rateLimit ? createRateLimiter(opts.rateLimit) : null;
+  const sensitiveLimiter = opts.rateLimit
+    ? createRateLimiter({ windowMs: opts.rateLimit.windowMs || 60_000, max: opts.rateLimit.sensitiveMax || Math.max(5, Math.floor((opts.rateLimit.max || 300) / 10)) })
+    : null;
+  const SENSITIVE = [/^\/api\/auth\/guest\/?$/, /^\/api\/players\/?$/, /^\/api\/players\/[^/]+\/iap\/redeem\/?$/];
 
   /** @type {Array<{method:string, re:RegExp, fn:Function, requiresSelf:boolean}>} */
   const routes = [];
@@ -566,6 +575,16 @@ export function createApp(store = new MemoryStore(), opts = {}) {
     // API routing
     if (url.pathname.startsWith('/api/')) {
       try {
+        // Rate limiting (when enabled): global per-IP + a stricter bucket for sensitive routes.
+        if (limiter) {
+          const ip = clientIp(req);
+          const g = limiter.hit(ip);
+          const s = SENSITIVE.some((re) => re.test(url.pathname)) ? sensitiveLimiter.hit('s:' + ip) : { allowed: true, retryAfterMs: 0 };
+          if (!g.allowed || !s.allowed) {
+            res.setHeader('Retry-After', Math.ceil(Math.max(g.retryAfterMs, s.retryAfterMs) / 1000));
+            return sendJson(res, 429, { error: { code: 'RATE_LIMITED', message: 'Too many requests' } });
+          }
+        }
         const match = routes.find((r) => r.method === req.method && r.re.test(url.pathname));
         if (!match) throw new HttpError(404, 'NO_ROUTE', `No route for ${req.method} ${url.pathname}`);
         const params = url.pathname.match(match.re)?.groups || {};
@@ -636,6 +655,16 @@ function clampNum(raw, min, max, dflt) {
   const n = Number(raw);
   if (!Number.isFinite(n)) return dflt;
   return Math.max(min, Math.min(max, n));
+}
+
+/** Best-effort client IP for rate-limit keying. Trust XFF only behind a known proxy
+ *  in production; here we prefer the socket address and fall back to the first XFF hop. */
+function clientIp(req) {
+  const sock = req.socket && req.socket.remoteAddress;
+  if (sock) return sock;
+  const xff = req.headers['x-forwarded-for'];
+  if (xff) return String(xff).split(',')[0].trim();
+  return 'unknown';
 }
 
 function setCors(res) {
