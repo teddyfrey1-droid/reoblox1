@@ -17,25 +17,43 @@ jouable qui dessine chaque créature à partir de son génome.
 ## 🚀 Démarrer en 30 secondes
 
 ```bash
-npm start          # API + prototype sur http://localhost:8787
-npm test           # 30 tests du cœur de jeu (déterminisme, économie, progression, jardin)
+npm start          # API + prototype sur http://localhost:8787 (mémoire + auth activée)
+npm test           # 101 tests : + auth + paiements + temps réel + chat + rate-limit
+npm run sim        # simulation d'équilibrage → docs/BALANCE-REPORT.md
+npm run gallery    # régénère la galerie de Lumi (SVG)
 npm run seed:demo  # affiche un échantillon de créatures générées
+
+# Production : clé de signature stable + Postgres durable
+JWT_SIGNING_KEY=$(openssl rand -hex 32) \
+DATABASE_URL=postgres://user:pass@localhost:5432/lumora npm start
 ```
 
-Aucune dépendance d'exécution n'est requise (Node ≥ 20, modules natifs uniquement).
-Ouvrez ensuite `http://localhost:8787` et essayez l'onglet **✨ Generator**.
+**Auth :** le serveur exige un **jeton de session signé (HS256)** sur les routes par
+compte ; un client n'agit que sur **son propre** compte. Le prototype web s'authentifie
+automatiquement via le flux **invité** (`POST /api/auth/guest`). Posez `JWT_SIGNING_KEY`
+en prod (sinon clé éphémère, jetons réinitialisés au redémarrage).
+
+**Dépendances :** le *runtime* par défaut (mémoire) ne requiert **aucune dépendance**
+(Node ≥ 20, modules natifs ; jetons via `node:crypto`). Le mode Postgres utilise `pg`
+(dépendance *optionnelle*). Les tests/outils utilisent des *devDependencies* (PGlite…).
+Ouvrez `http://localhost:8787` et essayez l'onglet **✨ Generator**.
+
+![Prototype jouable LUMORA](docs/assets/prototype.png)
+
+*Capture réelle du prototype (rendu via Chromium headless, sans erreur console) :
+Generator, Collection, Bloom Ritual et le monde partagé Great Bloom.*
 
 ## 🗂️ Structure du dépôt
 
 | Dossier | Contenu |
 |---|---|
-| [`docs/`](docs/) | **Le dossier de production** — 15 documents (vision → business plan) + GDD + PRD |
-| [`core/`](core/) | Le **cœur de jeu** pur et déterministe (zéro dépendance, partagé serveur ⇄ navigateur) |
-| [`server/`](server/) | API HTTP (module `http` natif) + store en mémoire (interface ⇒ Postgres) |
+| [`docs/`](docs/) | **Le dossier de production** — 15 documents + GDD + PRD + OpenAPI + rapport d'équilibrage |
+| [`core/`](core/) | Le **cœur de jeu** pur et déterministe (genome, économie, progression, jardin, pity, bloomdex, pass, trade) |
+| [`server/`](server/) | API HTTP (`http` natif) + **WebSocket temps réel** (`realtime.js`) + **auth par jetons** (`auth.js`) + **2 stores** : `MemoryStore` et `PgStore` (PostgreSQL réel) derrière la même interface |
 | [`web/`](web/) | Prototype jouable (canvas) + **moteur de rendu procédural** des Lumi |
-| [`db/`](db/schema.sql) | Schéma PostgreSQL de production (validé) |
-| [`tools/`](tools/) | Export SVG headless (preuve visuelle / planches de concept) |
-| [`test/`](test/) | Suite de tests (`node --test`) |
+| [`db/`](db/schema.sql) | Schéma PostgreSQL de production (validé + utilisé par `PgStore`) |
+| [`tools/`](tools/) | Export SVG, **simulation d'équilibrage**, captures headless |
+| [`test/`](test/) | Suite de tests `node --test` (**101 tests** : + auth + paiements + temps réel + chat + rate-limit) |
 
 ## 🧬 La pièce maîtresse : le système génératif des Lumi
 
@@ -69,13 +87,32 @@ Détails : [`docs/11-TECH-ARCHITECTURE.md`](docs/11-TECH-ARCHITECTURE.md).
 ## ✅ État de la vertical slice
 
 - [x] Génération + reproduction déterministes des Lumi (`core/genome.js`) — **testé**
+- [x] **Protection anti-malchance** (pity) garantissant une rareté minimale (`core/luck.js`) — **testé**
 - [x] Économie 2-monnaies avec grand-livre source/puits anti-inflation — **testé**
 - [x] Progression : niveaux, *streaks* quotidiens (avec jour de grâce), quêtes — **testé**
 - [x] Boucle de jardin : planter → arroser → récolter → éclore — **testé**
-- [x] API HTTP complète + onboarding + social (voisins, classement) — **vérifié**
-- [x] Prototype web jouable + rendu procédural — **vérifié**
+- [x] **Bloomdex** (complétion de collection + paliers) (`core/bloomdex.js`) — **testé**
+- [x] **Bloom Pass** saisonnier (voies gratuite/premium) (`core/pass.js`) — **testé**
+- [x] **Constellations** (guildes) + **échanges sécurisés** atomiques (`core/trade.js`) — **testé**
+- [x] API HTTP complète + onboarding + social + intégration **en process** — **testé**
+- [x] Prototype web jouable + **rendu procédural par forme** — **vérifié (capture Chromium)**
 - [x] Schéma PostgreSQL — **validé** (appliqué sur un vrai moteur)
-- [ ] Auth réelle, persistance Postgres, temps réel, client moteur (Godot) — *roadmap*
+- [x] **Persistance PostgreSQL réelle** (`server/pgStore.js`) — **durabilité prouvée** : l'état survit à une instance de store fraîche (`test/pgstore.test.js` sur PGlite)
+- [x] **Authentification** par jetons signés HS256 + flux invité par appareil (`server/auth.js`) — **testé** (401 sans jeton, 403 compte d'autrui)
+- [x] **Durcissement** : codes 4xx corrects, validation d'entrée, anti-exploit, parité d'erreurs des stores — **testé**
+- [x] **Rate limiting** : fenêtre fixe (global IP + bucket sensible), `429`+`Retry-After` (`server/ratelimit.js`) — **testé**
+- [x] **Monétisation** : abonnement « Jardin Doré » + octroi IAP **idempotent** (jamais de double-crédit) (`core/subscription.js`) — **testé**
+- [x] **Vérification de paiement réelle** : **signature de webhook Stripe** (HMAC + anti-rejeu) + Apple/Google par **transport injectable** (`server/iap.js`) — **testé** (`test/iap-providers.test.js`)
+- [x] **Temps réel** (WebSocket) : présence, ticks live du Great Bloom, notifications de visite + **chat de Constellation** ; auth par jeton sur `/ws` (`server/realtime.js`) — **testé** (client `ws`)
+- [x] **Simulation d'équilibrage** pilotée par données → [`BALANCE-REPORT.md`](docs/BALANCE-REPORT.md)
+- [x] **OpenAPI** ([`docs/openapi.yaml`](docs/openapi.yaml))
+- [ ] Branchement réseau Apple/Google (transport prod), fan-out Redis multi-instances, client moteur (Godot) — *roadmap*
+
+## 🚀 Mettre en ligne
+
+Guide pas à pas (Docker, variables d'env, Postgres, Stripe, TLS/WSS, smoke test) :
+**[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)**. Un [`Dockerfile`](Dockerfile) est fourni
+(`docker build -t lumora . && docker run -p 80:8787 -e NODE_ENV=production -e JWT_SIGNING_KEY=… lumora`).
 
 ## 📜 Licence
 

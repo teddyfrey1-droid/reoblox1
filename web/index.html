@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>LUMORA — playable prototype</title>
+  <link rel="stylesheet" href="/web/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🌱</text></svg>" />
+</head>
+<body>
+  <div id="sky"></div>
+
+  <header class="topbar">
+    <div class="brand"><span class="logo">✿</span> LUMORA</div>
+    <div class="wallet">
+      <span class="chip petals" title="Petals — soft currency">🌸 <b id="w-petals">0</b></span>
+      <span class="chip lumen" title="Lumen — premium currency">✦ <b id="w-lumen">0</b></span>
+      <span class="chip level" title="Keeper level">Lv <b id="w-level">1</b></span>
+      <span class="chip streak" title="Daily streak">🔥 <b id="w-streak">0</b></span>
+    </div>
+    <button id="daily-btn" class="btn primary small">Claim daily</button>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="generator">✨ Generator</button>
+    <button class="tab" data-tab="garden">🌱 Garden</button>
+    <button class="tab" data-tab="collection">📖 Collection</button>
+    <button class="tab" data-tab="breed">💞 Bloom Ritual</button>
+    <button class="tab" data-tab="social">🌍 World</button>
+  </nav>
+
+  <main>
+    <!-- GENERATOR: instant, account-free wow moment -->
+    <section class="panel active" id="tab-generator">
+      <div class="two-col">
+        <div class="stage-wrap">
+          <canvas id="gen-canvas" width="420" height="420"></canvas>
+          <div class="seed-row">
+            <code id="gen-seedcode">LUMI-----</code>
+            <button class="btn small" id="gen-reroll">🎲 New Lumi</button>
+            <button class="btn small ghost" id="gen-copy">Copy seed</button>
+          </div>
+        </div>
+        <div class="info">
+          <h2 id="gen-name">—</h2>
+          <div class="badges" id="gen-badges"></div>
+          <p class="muted" id="gen-desc"></p>
+          <div class="controls">
+            <label>Biome
+              <select id="gen-biome">
+                <option value="">(any)</option>
+                <option value="meadow">Sunlit Meadow</option>
+                <option value="tide_pools">Tide Pools</option>
+                <option value="glade">Mossy Glade</option>
+                <option value="dunes">Amber Dunes</option>
+                <option value="nocturne">Nocturne Hollow</option>
+                <option value="emberfall">Emberfall Ridge</option>
+              </select>
+            </label>
+            <label>World Bloom <input type="range" id="gen-bloom" min="0" max="100" value="35" /></label>
+            <label>Care <input type="range" id="gen-care" min="0" max="100" value="60" /></label>
+            <label>Seed code <input type="text" id="gen-seedinput" placeholder="LUMI-XXXX-XXX or number" /></label>
+          </div>
+          <table class="stats" id="gen-stats"></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- GARDEN: the core loop -->
+    <section class="panel" id="tab-garden">
+      <div class="two-col">
+        <div>
+          <h2>Your sky-garden <span class="muted" id="garden-biome"></span></h2>
+          <div id="plots" class="plots"></div>
+        </div>
+        <div>
+          <h3>Seed shop</h3>
+          <div id="seedshop" class="shop"></div>
+          <p class="muted tiny">Plant a seed → it grows in real time → harvest to hatch a Lumi. Tend (water) it for better odds.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- COLLECTION -->
+    <section class="panel" id="tab-collection">
+      <div class="row between">
+        <h2>Collection <span class="muted" id="coll-count"></span></h2>
+        <select id="coll-sort">
+          <option value="recent">Recent</option>
+          <option value="power">Power</option>
+          <option value="rarity">Rarity</option>
+        </select>
+      </div>
+      <div id="collection" class="grid"></div>
+    </section>
+
+    <!-- BREED -->
+    <section class="panel" id="tab-breed">
+      <h2>Bloom Ritual <span class="muted">— combine two Lumi (costs ✦ 25)</span></h2>
+      <div class="breed-stage">
+        <div class="parent" id="parent-a"><canvas width="200" height="200"></canvas><span>Pick parent A</span></div>
+        <div class="plus">＋</div>
+        <div class="parent" id="parent-b"><canvas width="200" height="200"></canvas><span>Pick parent B</span></div>
+        <div class="plus">＝</div>
+        <div class="parent child" id="child"><canvas width="200" height="200"></canvas><span>?</span></div>
+      </div>
+      <div class="center"><button class="btn primary" id="breed-btn" disabled>Perform Ritual</button></div>
+      <h3>Choose from your collection</h3>
+      <div id="breed-picker" class="grid small"></div>
+    </section>
+
+    <!-- SOCIAL / WORLD -->
+    <section class="panel" id="tab-social">
+      <div class="world-meta">
+        <h2>The Great Bloom</h2>
+        <div class="bloom-bar"><div id="bloom-fill"></div><span id="bloom-label"></span></div>
+        <p class="muted tiny">Every Lumi hatched by every Keeper restores the shared world. Season: <b id="world-season">—</b></p>
+      </div>
+      <div class="two-col">
+        <div>
+          <h3>Neighbours</h3>
+          <div id="neighbours" class="neighbours"></div>
+        </div>
+        <div>
+          <h3>Leaderboard</h3>
+          <ol id="leaderboard" class="leaderboard"></ol>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <dialog id="hatch-dialog">
+    <canvas id="hatch-canvas" width="300" height="300"></canvas>
+    <h2 id="hatch-name"></h2>
+    <div class="badges" id="hatch-badges"></div>
+    <button class="btn primary" id="hatch-close">Lovely!</button>
+  </dialog>
+
+  <script type="module" src="/web/app.js"></script>
+</body>
+</html>

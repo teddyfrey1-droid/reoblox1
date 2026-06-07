@@ -1,0 +1,88 @@
+// @ts-check
+/**
+ * Server entry point. Boots the HTTP API + static prototype on one port.
+ *
+ *   npm start                              # in-memory store, demo world (zero infra)
+ *   PORT=3000 npm start
+ *   DATABASE_URL=postgres://… npm start    # durable PostgreSQL store (needs `pg`)
+ *
+ * Store selection is the only branch here; all behaviour lives in api.js
+ * (orchestration) and /core (rules).
+ */
+
+import { createServer } from 'node:http';
+import { randomBytes } from 'node:crypto';
+import { createApp } from './api.js';
+import { MemoryStore } from './store.js';
+import { seedDemoWorld } from './scripts/demo.js';
+import { createRealtime } from './realtime.js';
+
+const PORT = Number(process.env.PORT) || 8787;
+
+let store;
+let demoNote = '';
+
+if (process.env.DATABASE_URL) {
+  // Durable mode: Postgres-backed store (data survives restarts). `pg` is lazy-imported.
+  const { PgStore } = await import('./pgStore.js');
+  const { openPostgres } = await import('./db.js');
+  const db = await openPostgres(process.env.DATABASE_URL);
+  store = await new PgStore(db).init();
+  demoNote = '  ─ Store:             PostgreSQL (durable)\n';
+} else {
+  // Zero-infra mode: in-memory store with a pre-seeded demo world so the prototype
+  // isn't lonely on first load.
+  store = new MemoryStore();
+  const demo = seedDemoWorld(store);
+  demoNote = `  ─ Store:             in-memory (set DATABASE_URL for durable Postgres)\n  ─ Demo player id:    ${demo.id} (handle "${demo.handle}")\n`;
+}
+
+// Auth is enforced in the running server. Set JWT_SIGNING_KEY so tokens survive
+// restarts and span instances; without it we use a random per-process key (dev only).
+// The SAME key signs/verifies both REST tokens and WebSocket (/ws?token=) auth.
+if (!process.env.JWT_SIGNING_KEY) {
+  // In production an ephemeral key breaks multi-instance auth (tokens won't validate
+  // across instances) and resets on restart — refuse to boot rather than fail silently.
+  if (process.env.NODE_ENV === 'production') {
+    console.error('  ✗ JWT_SIGNING_KEY is required in production (set a stable 32-byte hex key).');
+    process.exit(1);
+  }
+  console.warn('  ⚠ JWT_SIGNING_KEY not set — using an ephemeral key (tokens reset on restart; dev only).');
+}
+const secret = process.env.JWT_SIGNING_KEY || randomBytes(32).toString('hex');
+const realtime = createRealtime({ secret, store }); // store enables constellation-chat routing
+const server = createServer(createApp(store, {
+  requireAuth: true,
+  secret,
+  realtime,
+  // Behind a load balancer/CDN, set TRUST_PROXY=1 so the limiter keys on the real
+  // client IP (X-Forwarded-For) instead of the proxy's single address.
+  trustProxy: process.env.TRUST_PROXY === '1',
+  // Abuse protection: 300 req/min/IP globally, tighter on sensitive endpoints.
+  rateLimit: {
+    windowMs: 60_000,
+    max: Number(process.env.RATE_LIMIT_MAX) || 300,
+    sensitiveMax: Number(process.env.RATE_LIMIT_SENSITIVE_MAX) || 30,
+  },
+  // Real-money verification (all optional; absent → those paths 501 until configured):
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET, // POST /api/webhooks/stripe
+  // iapTransport: wire App Store Server API / Play Developer API here for apple/google.
+}));
+await realtime.attach(server);
+
+server.listen(PORT, () => {
+  console.log('\n  🌱 LUMORA dev server');
+  console.log(`  ─ API + prototype:  http://localhost:${PORT}`);
+  console.log(`  ─ Try the generator: http://localhost:${PORT}/api/preview/lumi?biome=nocturne`);
+  console.log('  ─ Auth:             Bearer tokens required on per-account routes');
+  console.log(`  ─ Real-time:        ${realtime.enabled ? `ws://localhost:${PORT}/ws?token=…` : 'disabled (ws not installed)'}`);
+  process.stdout.write(demoNote + '\n');
+});
+
+// Graceful shutdown (clean container teardown / nodemon restarts).
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    console.log(`\n  ${sig} received — closing server.`);
+    server.close(() => process.exit(0));
+  });
+}

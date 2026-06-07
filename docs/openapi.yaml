@@ -1,0 +1,475 @@
+openapi: 3.0.3
+info:
+  title: LUMORA Game API
+  version: 0.2.0
+  description: >
+    HTTP API for the LUMORA vertical slice. The server is authoritative: every
+    state mutation is validated server-side and runs the shared deterministic
+    game-core (`/core`). Auth is stubbed in the slice (player id in the path);
+    production uses signed session tokens (see docs/11-TECH-ARCHITECTURE.md).
+  license:
+    name: Proprietary (see LICENSE)
+servers:
+  - url: http://localhost:8787
+    description: Local dev server (API + static prototype)
+
+tags:
+  - name: Meta
+  - name: Players
+  - name: Garden
+  - name: Breeding
+  - name: Collection
+  - name: Retention
+  - name: Bloomdex
+  - name: BloomPass
+  - name: Social
+  - name: Trading
+  - name: Auth
+  - name: Monetisation
+
+paths:
+  /api/healthz:
+    get:
+      tags: [Meta]
+      summary: Liveness probe
+      responses: { '200': { description: OK } }
+
+  /api/world:
+    get:
+      tags: [Meta]
+      summary: Shared world state (the Great Bloom)
+      responses:
+        '200':
+          description: World snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  world:
+                    type: object
+                    properties:
+                      season: { type: string }
+                      bloomLevel: { type: number }
+                      totalLumiHatched: { type: integer }
+
+  /api/catalog:
+    get:
+      tags: [Meta]
+      summary: Content catalog (biomes, seeds, decor, Bloom Pass)
+      responses: { '200': { description: Catalog } }
+
+  /api/preview/lumi:
+    get:
+      tags: [Meta]
+      summary: Generate a Lumi preview without an account
+      parameters:
+        - { in: query, name: seed, schema: { type: string }, description: "uint32 or LUMI-XXXX-XXX code" }
+        - { in: query, name: biome, schema: { type: string } }
+        - { in: query, name: bloom, schema: { type: number } }
+        - { in: query, name: care, schema: { type: number } }
+      responses:
+        '200':
+          description: A generated genome
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { lumi: { $ref: '#/components/schemas/Lumi' } }
+
+  /api/players:
+    post:
+      tags: [Players]
+      summary: Create a player (grants onboarding bundle + 2 starter Lumi)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [handle]
+              properties: { handle: { type: string, minLength: 3, maxLength: 20 } }
+      responses:
+        '200': { description: Created, content: { application/json: { schema: { type: object, properties: { player: { $ref: '#/components/schemas/Player' } } } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /api/players/{id}:
+    get:
+      tags: [Players]
+      summary: Public player profile
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses:
+        '200': { description: Player, content: { application/json: { schema: { type: object, properties: { player: { $ref: '#/components/schemas/Player' } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /api/players/{id}/daily:
+    post:
+      tags: [Retention]
+      summary: Claim the daily reward (idempotent per UTC day)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses: { '200': { description: Claim result } }
+
+  /api/players/{id}/quests:
+    get:
+      tags: [Retention]
+      summary: Today's deterministic daily quests
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses: { '200': { description: Quest list } }
+
+  /api/players/{id}/shop/buy:
+    post:
+      tags: [Players]
+      summary: Buy a catalog item (plant | decor | biome)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, id]
+              properties:
+                kind: { type: string, enum: [plant, decor, biome] }
+                id: { type: string }
+      responses:
+        '200': { description: Purchased }
+        '400': { $ref: '#/components/responses/Error' }
+
+  /api/players/{id}/garden:
+    get:
+      tags: [Garden]
+      summary: Live garden view (plot states + countdowns)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses: { '200': { description: Garden view } }
+
+  /api/players/{id}/garden/plant:
+    post:
+      tags: [Garden]
+      summary: Buy & plant a seed in a plot
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plotIndex, plantId]
+              properties:
+                plotIndex: { type: integer }
+                plantId: { type: string }
+      responses: { '200': { description: Planted }, '400': { $ref: '#/components/responses/Error' } }
+
+  /api/players/{id}/garden/water:
+    post:
+      tags: [Garden]
+      summary: Water a growing plot (speeds growth, improves care; caps at 3)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { plotIndex: { type: integer } } } } } }
+      responses: { '200': { description: Watered } }
+
+  /api/players/{id}/garden/harvest:
+    post:
+      tags: [Garden]
+      summary: Harvest a ready plot — hatches a Lumi (applies pity, XP, pass, guild bloom)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { plotIndex: { type: integer } } } } } }
+      responses:
+        '200':
+          description: Hatched Lumi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lumi: { $ref: '#/components/schemas/Lumi' }
+                  pityRescue: { type: boolean }
+
+  /api/players/{id}/collection:
+    get:
+      tags: [Collection]
+      summary: Owned Lumi (sortable)
+      parameters:
+        - { $ref: '#/components/parameters/PlayerId' }
+        - { in: query, name: sort, schema: { type: string, enum: [recent, power, rarity] } }
+      responses: { '200': { description: Collection } }
+
+  /api/players/{id}/lumi/{uid}/lock:
+    post:
+      tags: [Collection]
+      summary: Lock/unlock a Lumi (locked Lumi cannot be traded)
+      parameters:
+        - { $ref: '#/components/parameters/PlayerId' }
+        - { in: path, name: uid, required: true, schema: { type: string } }
+      requestBody: { content: { application/json: { schema: { type: object, properties: { locked: { type: boolean } } } } } }
+      responses: { '200': { description: Lock state } }
+
+  /api/players/{id}/breed:
+    post:
+      tags: [Breeding]
+      summary: Bloom Ritual — combine two owned Lumi (costs 25 Lumen)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [parentA, parentB]
+              properties: { parentA: { type: string }, parentB: { type: string } }
+      responses:
+        '200': { description: Child Lumi }
+        '402': { $ref: '#/components/responses/Error' }
+
+  /api/players/{id}/bloomdex:
+    get:
+      tags: [Bloomdex]
+      summary: Collection encyclopaedia (completion + claimable milestones)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses: { '200': { description: Bloomdex report } }
+  /api/players/{id}/bloomdex/claim:
+    post:
+      tags: [Bloomdex]
+      summary: Claim reached Bloomdex milestone rewards
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses: { '200': { description: Claimed }, '400': { $ref: '#/components/responses/Error' } }
+
+  /api/players/{id}/pass:
+    get:
+      tags: [BloomPass]
+      summary: Bloom Pass progress + claimable tiers
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses: { '200': { description: Pass view } }
+  /api/players/{id}/pass/claim:
+    post:
+      tags: [BloomPass]
+      summary: Claim a pass tier reward (free | premium lane)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { tier: { type: integer }, lane: { type: string, enum: [free, premium] } } }
+      responses: { '200': { description: Claimed }, '400': { $ref: '#/components/responses/Error' } }
+  /api/players/{id}/pass/upgrade:
+    post:
+      tags: [BloomPass]
+      summary: Buy the premium Bloom Pass lane (Lumen)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses: { '200': { description: Upgraded }, '402': { $ref: '#/components/responses/Error' } }
+
+  /api/constellations:
+    get:
+      tags: [Social]
+      summary: Top constellations (guilds) by bloom score
+      responses: { '200': { description: List } }
+  /api/players/{id}/constellation:
+    get:
+      tags: [Social]
+      summary: The player's current constellation
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses: { '200': { description: Constellation or null } }
+  /api/players/{id}/constellation/create:
+    post:
+      tags: [Social]
+      summary: Found a constellation
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: { type: string } } } } } }
+      responses: { '200': { description: Created }, '409': { $ref: '#/components/responses/Error' } }
+  /api/players/{id}/constellation/join:
+    post:
+      tags: [Social]
+      summary: Join a constellation by id
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { constellationId: { type: string } } } } } }
+      responses: { '200': { description: Joined } }
+
+  /api/players/{id}/neighbours:
+    get:
+      tags: [Social]
+      summary: Neighbour gardens to visit
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses: { '200': { description: Neighbours } }
+  /api/players/{id}/visit:
+    post:
+      tags: [Social]
+      summary: Visit a neighbour (small social reward)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { targetId: { type: string } } } } } }
+      responses: { '200': { description: Visited } }
+  /api/leaderboard:
+    get:
+      tags: [Social]
+      summary: Global leaderboard by top collection power
+      responses: { '200': { description: Leaderboard } }
+
+  /api/players/{id}/trades:
+    get:
+      tags: [Trading]
+      summary: Incoming open trade offers
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses: { '200': { description: Incoming trades } }
+    post:
+      tags: [Trading]
+      summary: Propose a trade (validated up-front; a Petals tax applies)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [toId]
+              properties:
+                toId: { type: string }
+                offerLumi: { type: array, items: { type: string } }
+                offerPetals: { type: integer }
+                requestLumi: { type: array, items: { type: string } }
+      responses: { '200': { description: Trade created }, '400': { $ref: '#/components/responses/Error' } }
+  /api/players/{id}/trades/{tradeId}/accept:
+    post:
+      tags: [Trading]
+      summary: Accept an incoming trade (atomic swap)
+      parameters:
+        - { $ref: '#/components/parameters/PlayerId' }
+        - { in: path, name: tradeId, required: true, schema: { type: string } }
+      responses: { '200': { description: Executed }, '400': { $ref: '#/components/responses/Error' } }
+  /api/players/{id}/trades/{tradeId}/cancel:
+    post:
+      tags: [Trading]
+      summary: Cancel a trade you are party to
+      parameters:
+        - { $ref: '#/components/parameters/PlayerId' }
+        - { in: path, name: tradeId, required: true, schema: { type: string } }
+      responses: { '200': { description: Cancelled } }
+
+  /api/auth/guest:
+    post:
+      tags: [Auth]
+      summary: Anonymous/guest login — get or recover a player + a session token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { deviceId: { type: string, description: "8-128 [\\w-]; omitted → a new one is issued" } }
+      responses:
+        '200':
+          description: Player + bearer token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  player: { $ref: '#/components/schemas/Player' }
+                  token: { type: string }
+                  deviceId: { type: string }
+                  created: { type: boolean }
+
+  /api/store/products:
+    get:
+      tags: [Monetisation]
+      summary: Real-money product catalog (Lumen packs + subscription)
+      responses: { '200': { description: Products } }
+
+  /api/players/{id}/iap/redeem:
+    post:
+      tags: [Monetisation]
+      summary: Redeem a verified purchase (idempotent per transactionId)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform, productId, transactionId, receipt]
+              properties:
+                platform: { type: string, enum: [apple, google, stripe, test] }
+                productId: { type: string }
+                transactionId: { type: string }
+                receipt: { type: string }
+      responses:
+        '200': { description: Granted (or alreadyRedeemed) }
+        '400': { $ref: '#/components/responses/Error' }
+        '402': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/Error' }
+
+  /api/players/{id}/subscription:
+    get:
+      tags: [Monetisation]
+      summary: Golden Garden subscription status
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses: { '200': { description: Subscription view } }
+  /api/players/{id}/subscription/stipend:
+    post:
+      tags: [Monetisation]
+      summary: Claim the daily Lumen stipend (once/day while subscribed)
+      parameters: [{ $ref: '#/components/parameters/PlayerId' }]
+      responses: { '200': { description: Claimed }, '400': { $ref: '#/components/responses/Error' } }
+
+  /api/webhooks/stripe:
+    post:
+      tags: [Monetisation]
+      summary: Stripe webhook — verifies the Stripe-Signature over the raw body, then
+        idempotently grants by event id. No Bearer token (signature is the auth).
+      parameters:
+        - { in: header, name: Stripe-Signature, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        description: Raw Stripe event JSON (must be the unparsed body for signature checks).
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200': { description: Received (granted / duplicate / ignored) }
+        '400': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/Error' }
+
+components:
+  parameters:
+    PlayerId:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Error:
+      description: Typed error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string }
+                  message: { type: string }
+  schemas:
+    Player:
+      type: object
+      properties:
+        id: { type: string }
+        handle: { type: string }
+        wallet:
+          type: object
+          properties: { petals: { type: integer }, lumen: { type: integer } }
+        level: { type: object }
+        collectionSize: { type: integer }
+        pass: { type: object }
+        constellationId: { type: string, nullable: true }
+    Lumi:
+      type: object
+      properties:
+        seed: { type: integer }
+        seedCode: { type: string, example: LUMI-7F3K-9QZ2 }
+        name: { type: string }
+        species: { type: string }
+        rarity: { type: string, enum: [common, uncommon, rare, epic, legendary, mythic] }
+        element: { type: string, enum: [sun, moon, water, earth, spark, bloom] }
+        form: { type: string, enum: [sprout, critter, floater, finling, tot, wyrm] }
+        mutations: { type: array, items: { type: string } }
+        power: { type: integer }
+        palette: { type: object }
+        render: { type: object, description: Renderer-agnostic vector spec }

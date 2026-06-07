@@ -16,8 +16,15 @@ jobs:
         with:
           node-version: "22"
 
-      # The game core has ZERO runtime dependencies, so tests run with no install.
-      - name: Run game-core test suite
+      # Install devDependencies (PGlite) so the PgStore persistence test runs for
+      # real. The game RUNTIME still has zero required dependencies (in-memory mode);
+      # `pg` is an optional dependency used only when DATABASE_URL is set.
+      - name: Install dependencies
+        run: npm install
+
+      # 61 tests: deterministic core + in-process API integration + PgStore durability
+      # (verified against an embedded real Postgres via PGlite).
+      - name: Run test suite
         run: node --test test/*.test.js
 
       - name: Syntax-check every source file
@@ -30,7 +37,6 @@ jobs:
       # Validate the production SQL schema against an embedded Postgres (PGlite).
       - name: Validate db/schema.sql
         run: |
-          npm install --no-save @electric-sql/pglite
           node --input-type=module -e '
             import { PGlite } from "@electric-sql/pglite";
             import { citext } from "@electric-sql/pglite/contrib/citext";
@@ -44,3 +50,6 @@ jobs:
 
       - name: Generate Lumi gallery (smoke test for the generative pipeline)
         run: node tools/render-svg.js
+
+      - name: Balance simulation smoke (small cohort)
+        run: node tools/simulate.js 200 14
