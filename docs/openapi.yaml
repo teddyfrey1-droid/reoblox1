@@ -408,6 +408,24 @@ paths:
       parameters: [{ $ref: '#/components/parameters/PlayerId' }]
       responses: { '200': { description: Claimed }, '400': { $ref: '#/components/responses/Error' } }
 
+  /api/webhooks/stripe:
+    post:
+      tags: [Monetisation]
+      summary: Stripe webhook — verifies the Stripe-Signature over the raw body, then
+        idempotently grants by event id. No Bearer token (signature is the auth).
+      parameters:
+        - { in: header, name: Stripe-Signature, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        description: Raw Stripe event JSON (must be the unparsed body for signature checks).
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200': { description: Received (granted / duplicate / ignored) }
+        '400': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/Error' }
+
 components:
   parameters:
     PlayerId:

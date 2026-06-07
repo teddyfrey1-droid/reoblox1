@@ -18,7 +18,7 @@ jouable qui dessine chaque créature à partir de son génome.
 
 ```bash
 npm start          # API + prototype sur http://localhost:8787 (mémoire + auth activée)
-npm test           # 89 tests : + auth + monétisation + temps réel
+npm test           # 94 tests : + auth + monétisation + temps réel + vérif. paiements
 npm run sim        # simulation d'équilibrage → docs/BALANCE-REPORT.md
 npm run gallery    # régénère la galerie de Lumi (SVG)
 npm run seed:demo  # affiche un échantillon de créatures générées
@@ -53,7 +53,7 @@ Generator, Collection, Bloom Ritual et le monde partagé Great Bloom.*
 | [`web/`](web/) | Prototype jouable (canvas) + **moteur de rendu procédural** des Lumi |
 | [`db/`](db/schema.sql) | Schéma PostgreSQL de production (validé + utilisé par `PgStore`) |
 | [`tools/`](tools/) | Export SVG, **simulation d'équilibrage**, captures headless |
-| [`test/`](test/) | Suite de tests `node --test` (**89 tests** : cœur + API + PostgreSQL + auth + monétisation + temps réel) |
+| [`test/`](test/) | Suite de tests `node --test` (**94 tests** : + auth + monétisation + temps réel + vérification paiements) |
 
 ## 🧬 La pièce maîtresse : le système génératif des Lumi
 
@@ -100,11 +100,12 @@ Détails : [`docs/11-TECH-ARCHITECTURE.md`](docs/11-TECH-ARCHITECTURE.md).
 - [x] **Persistance PostgreSQL réelle** (`server/pgStore.js`) — **durabilité prouvée** : l'état survit à une instance de store fraîche (`test/pgstore.test.js` sur PGlite)
 - [x] **Authentification** par jetons signés HS256 + flux invité par appareil (`server/auth.js`) — **testé** (401 sans jeton, 403 compte d'autrui)
 - [x] **Durcissement** : codes 4xx corrects, validation d'entrée, anti-exploit, parité d'erreurs des stores — **testé**
-- [x] **Monétisation** : reçus IAP validés serveur **idempotents** (jamais de double-crédit) + abonnement « Jardin Doré » + stipend (`server/iap.js`, `core/subscription.js`) — **testé** (dont déduplication persistée en base)
+- [x] **Monétisation** : abonnement « Jardin Doré » + octroi IAP **idempotent** (jamais de double-crédit) (`core/subscription.js`) — **testé**
+- [x] **Vérification de paiement réelle** : **signature de webhook Stripe** (HMAC + anti-rejeu) + Apple/Google par **transport injectable** (`server/iap.js`) — **testé** (`test/iap-providers.test.js`)
 - [x] **Temps réel** (WebSocket) : présence, ticks live du Great Bloom, notifications de visite ; auth par jeton sur `/ws` (`server/realtime.js`) — **testé** (client `ws`)
 - [x] **Simulation d'équilibrage** pilotée par données → [`BALANCE-REPORT.md`](docs/BALANCE-REPORT.md)
 - [x] **OpenAPI** ([`docs/openapi.yaml`](docs/openapi.yaml))
-- [ ] Vérificateurs IAP réels (Apple/Google/Stripe), chat de Constellation, client moteur (Godot) — *roadmap*
+- [ ] Branchement réseau Apple/Google (transport prod), chat de Constellation, client moteur (Godot) — *roadmap*
 
 ## 📜 Licence
 

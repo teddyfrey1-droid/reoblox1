@@ -2,6 +2,27 @@
 
 All notable changes to the LUMORA prototype are documented here.
 
+## [0.7.0] — Real payment verification (Stripe webhook + Apple/Google transport)
+
+### Added
+- **Stripe webhook** (`POST /api/webhooks/stripe`): real signature verification
+  (`verifyStripeSignature` — HMAC-SHA256 over `t.rawBody`, constant-time compare,
+  timestamp tolerance against replay) over the RAW body, then an **idempotent** grant
+  deduped by Stripe `event.id`. Maps `metadata.{playerId, productId}` to a Lumen credit
+  or subscription extension. Enabled via `STRIPE_WEBHOOK_SECRET`. The webhook bypasses
+  JSON parsing/Bearer auth (Stripe authenticates via the signature).
+- **Apple/Google verification via injected transport**: `createIapVerifier({ transport })`
+  calls the platform (App Store Server API / Play Developer API in prod; a fake in tests)
+  and trusts the **provider-authoritative** product/transaction — never the client's claim.
+  Unconfigured providers still return an honest 501.
+- Shared `grantProduct()` used by both `/iap/redeem` and the webhook; `readRawBody` helper.
+
+### Tests
+- `test/iap-providers.test.js` (5): Stripe signature unit (valid/tampered/stale/missing),
+  webhook grant + idempotent replay, bad-signature 400 + ignored-event passthrough, Apple
+  redeem via transport (+ rejected receipt 402), and the test provider alongside real ones.
+  Suite: 89 → **94**, all green.
+
 ## [0.6.0] — Real-time (WebSocket): presence + live world & social events
 
 ### Added

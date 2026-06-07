@@ -103,16 +103,21 @@ Hypothèses détaillées et scénarios dans [12-BUSINESS-PLAN.md](12-BUSINESS-PL
 ## Implémentation dans la *slice* (testée)
 
 - **Bloom Pass** : `core/pass.js` (+ routes `/pass`, `/pass/claim`, `/pass/upgrade`).
-- **Achats IAP** : `server/iap.js` — vérification de reçu **pluggable** (provider `test`
-  signé HMAC ; Apple/Google/Stripe en stubs honnêtes → `501` tant que non câblés) +
-  `POST /api/players/:id/iap/redeem` **idempotent** : un `transactionId` ne crédite
-  **qu'une fois** (déduplication via la table `iap_receipts`, persistée et testée sur
-  PgStore). Les achats ne sont **jamais** acceptés sur la seule parole du client.
+- **Achats mobiles (Apple/Google)** : `POST /api/players/:id/iap/redeem` — le client envoie
+  un reçu, le serveur le **vérifie via un transport injectable** (App Store Server API / Play
+  Developer API en prod ; *fake* en test) et n'accepte **que** le produit/transaction
+  retournés par la plateforme. **Idempotent** : un `transactionId` ne crédite **qu'une fois**
+  (déduplication via `iap_receipts`, persistée et testée sur PgStore). Le provider `test`
+  (reçu signé HMAC) exerce tout le pipeline.
+- **Web shop (Stripe)** : `POST /api/webhooks/stripe` — **vérification de signature** réelle
+  (HMAC-SHA256 sur `t.body`, comparaison à temps constant, fenêtre anti-rejeu) puis octroi
+  **idempotent** (déduplication par `event.id`). C'est exactement le schéma Stripe ; il suffit
+  de poser `STRIPE_WEBHOOK_SECRET` et de mapper `metadata.{playerId,productId}`.
 - **Abonnement « Jardin Doré »** : `core/subscription.js` — activation, **cumul** au
   renouvellement (aucune journée perdue), **stipend** de Lumen quotidien (`/subscription`,
   `/subscription/stipend`). Avantages de confort/expression uniquement (non *pay-to-win*).
 - **Catalogue produits** public : `GET /api/store/products` (`IAP_PRODUCTS`).
 
-> Les vérificateurs Apple/Google/Stripe réels (App Store Server API, Play Developer API,
-> signatures Stripe) se branchent sur la même interface — le pipeline redeem→grant→
-> idempotence est déjà éprouvé.
+> Les achats ne sont **jamais** acceptés sur la seule parole du client : Apple/Google via
+> transport autoritaire, Stripe via signature de webhook. Le pipeline vérif→octroi→idempotence
+> est éprouvé par les tests (`test/iap.test.js`, `test/iap-providers.test.js`).

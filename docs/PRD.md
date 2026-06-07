@@ -73,7 +73,7 @@ complète sans blocage, signaux de rétention interne encourageants.
   - ✅ Crédit/débit/achat validés et journalisés ; *atomicité* du paiement ; caps (testé).
   - ✅ Rapport faucet/sink calculable (anti-inflation, testé).
   - ✅ **Pipeline IAP serveur** : vérification de reçu (pluggable) + **redeem idempotent** (déduplication par `transactionId`, jamais de double-crédit) — testé (provider `test`; dédup persistée en base sur PgStore).
-  - ⬜ Vérificateurs **réels** Apple/Google/Stripe (stubs honnêtes → 501 tant que non câblés) + web shop.
+  - ✅ **Vérification de paiement réelle** : webhook **Stripe** (signature HMAC + anti-rejeu, idempotent par `event.id`) + **Apple/Google** par transport injectable (produit/transaction autoritaires) — testé. ⬜ Reste à brancher le réseau Apple/Google réel (transport prod).
   - ✅ **Bloom Pass jouable** (XP, paliers, voies gratuite/premium, achat premium en Lumen) — testé.
   - ✅ **Abonnement « Jardin Doré »** (activation, cumul au renouvellement, stipend quotidien) — testé.
 
