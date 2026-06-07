@@ -24,8 +24,9 @@ if (!WebSocket) {
   const open = [];
 
   before(async () => {
-    realtime = createRealtime({ secret: SECRET });
-    server = createServer(createApp(new MemoryStore(), { secret: SECRET, realtime }));
+    const store = new MemoryStore();
+    realtime = createRealtime({ secret: SECRET, store }); // share the store for chat routing
+    server = createServer(createApp(store, { secret: SECRET, realtime }));
     await new Promise((res) => server.listen(0, res));
     await realtime.attach(server);
     port = server.address().port;
@@ -102,5 +103,37 @@ if (!WebSocket) {
     await api(`/api/players/${a.player.id}/visit`, 'POST', { targetId: b.player.id }, a.token);
     const visit = await connB.waitFor('visit');
     assert.equal(visit.from, 'rt_visitor');
+  });
+
+  test('constellation chat reaches co-members only (room resolved on connect AND via setRoom)', async () => {
+    const a = (await api('/api/players', 'POST', { handle: 'chat_a' })).data;
+    const b = (await api('/api/players', 'POST', { handle: 'chat_b' })).data;
+    const d = (await api('/api/players', 'POST', { handle: 'chat_d' })).data;
+    // A founds a guild (then connects → room resolved on connect). D founds another.
+    const cid = (await api(`/api/players/${a.player.id}/constellation/create`, 'POST', { name: 'Chat Stars' })).data.constellation.id;
+    await api(`/api/players/${d.player.id}/constellation/create`, 'POST', { name: 'Other Stars' });
+
+    const connA = await wsConnect(a.token); await connA.waitFor('welcome');
+    const connB = await wsConnect(b.token); await connB.waitFor('welcome');
+    const connD = await wsConnect(d.token); await connD.waitFor('welcome');
+
+    // B joins A's guild AFTER connecting → exercises setRoom on a live socket.
+    await api(`/api/players/${b.player.id}/constellation/join`, 'POST', { constellationId: cid });
+
+    connA.ws.send(JSON.stringify({ type: 'chat', text: 'hello guild' }));
+    const msgB = await connB.waitFor('chat');
+    assert.equal(msgB.from, 'chat_a');
+    assert.equal(msgB.text, 'hello guild');
+    // The other guild must NOT receive it.
+    await assert.rejects(connD.waitFor('chat', 400), 'outsider must not receive guild chat');
+  });
+
+  test('chat without a guild returns an error, not a broadcast', async () => {
+    const solo = (await api('/api/players', 'POST', { handle: 'chat_solo' })).data;
+    const conn = await wsConnect(solo.token);
+    await conn.waitFor('welcome');
+    conn.ws.send(JSON.stringify({ type: 'chat', text: 'anyone?' }));
+    const err = await conn.waitFor('error');
+    assert.equal(err.code, 'NO_GUILD');
   });
 }

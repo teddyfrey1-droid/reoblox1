@@ -477,12 +477,14 @@ export function createApp(store = new MemoryStore(), opts = {}) {
   route('POST', '/api/players/:id/constellation/create', async (params, body) => {
     const player = await store.getPlayer(params.id);
     const c = await store.createConstellation(player, body.name);
+    if (rt) rt.setRoom(player.id, c.id); // move any live socket into the new chat room
     return { constellation: { id: c.id, name: c.name, members: c.members.length, bloomScore: c.bloomScore } };
   });
 
   route('POST', '/api/players/:id/constellation/join', async (params, body) => {
     const player = await store.getPlayer(params.id);
     const c = await store.joinConstellation(player, body.constellationId);
+    if (rt) rt.setRoom(player.id, c.id);
     return { constellation: { id: c.id, name: c.name, members: c.members.length, bloomScore: c.bloomScore } };
   });
 

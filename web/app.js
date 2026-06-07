@@ -96,6 +96,8 @@ function setupRealtime() {
         const label = $('#bloom-label'); if (label) label.textContent = `Great Bloom ${pct}% · ${fmt(m.totalLumiHatched)} Lumi hatched worldwide`;
       } else if (m.type === 'visit') {
         toast(`🌸 ${m.from} visited your garden!`);
+      } else if (m.type === 'chat') {
+        toast(`💬 ${m.from}: ${m.text}`);
       }
     });
     ws.addEventListener('error', () => { /* realtime is optional; ignore */ });

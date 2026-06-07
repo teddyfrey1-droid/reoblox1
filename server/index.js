@@ -44,7 +44,7 @@ if (!process.env.JWT_SIGNING_KEY) {
   console.warn('  ⚠ JWT_SIGNING_KEY not set — using an ephemeral key (tokens reset on restart).');
 }
 const secret = process.env.JWT_SIGNING_KEY || randomBytes(32).toString('hex');
-const realtime = createRealtime({ secret });
+const realtime = createRealtime({ secret, store }); // store enables constellation-chat routing
 const server = createServer(createApp(store, {
   requireAuth: true,
   secret,

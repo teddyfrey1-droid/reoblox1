@@ -15,16 +15,35 @@
  * Channels in this slice:
  *   - world: every client receives live Great-Bloom ticks ({type:'world', ...}).
  *   - player:<id>: personal notifications, e.g. a neighbour visiting you.
+ *   - constellation:<cid>: guild chat — {type:'chat'} in/out, routed to co-members.
  *   - presence: online count broadcast on connect/disconnect.
  */
 
 import { createAuth } from './auth.js';
 
-export function createRealtime({ secret, auth } = {}) {
+export function createRealtime({ secret, auth, store } = {}) {
   const authImpl = auth || createAuth(secret);
   let wss = null;
   /** @type {Set<any>} */ const sockets = new Set();
   /** @type {Map<string, Set<any>>} */ const byPlayer = new Map();
+  /** @type {Map<string, Set<any>>} constellationId -> sockets (chat rooms) */
+  const rooms = new Map();
+
+  function joinRoom(ws, cid) {
+    if (!cid || ws._cid === cid) { if (cid) ws._cid = cid; return; }
+    if (ws._cid) rooms.get(ws._cid)?.delete(ws);
+    ws._cid = cid;
+    if (!rooms.has(cid)) rooms.set(cid, new Set());
+    rooms.get(cid).add(ws);
+  }
+  function leaveRoom(ws) {
+    if (ws._cid) { const r = rooms.get(ws._cid); if (r) { r.delete(ws); if (!r.size) rooms.delete(ws._cid); } }
+  }
+  function broadcastRoom(cid, obj) {
+    const r = rooms.get(cid); if (!r) return;
+    const s = JSON.stringify(obj);
+    for (const ws of r) { try { ws.send(s); } catch { /* */ } }
+  }
 
   function track(ws, pid) {
     ws._pid = pid;
@@ -65,16 +84,28 @@ export function createRealtime({ secret, auth } = {}) {
           socket.destroy();
           return;
         }
-        wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.handleUpgrade(req, socket, head, async (ws) => {
           track(ws, payload.sub);
+          // Resolve display handle + constellation room for chat (best-effort).
+          try {
+            const pub = store ? await store.playerPublic(payload.sub) : null;
+            ws._handle = (pub && pub.handle) || 'keeper';
+            if (pub && pub.constellationId) joinRoom(ws, pub.constellationId);
+          } catch { ws._handle = 'keeper'; }
           safeSend(ws, { type: 'welcome', playerId: payload.sub, online: sockets.size });
           broadcast({ type: 'presence', online: sockets.size });
           ws.on('message', (data) => {
             let msg;
             try { msg = JSON.parse(data.toString()); } catch { return; }
-            if (msg && msg.type === 'ping') safeSend(ws, { type: 'pong', t: Date.now() });
+            if (!msg) return;
+            if (msg.type === 'ping') { safeSend(ws, { type: 'pong', t: Date.now() }); return; }
+            if (msg.type === 'chat') {
+              if (!ws._cid) { safeSend(ws, { type: 'error', code: 'NO_GUILD', message: 'Join a constellation to chat' }); return; }
+              const text = [...String(msg.text || '')].filter((ch) => { const c = ch.charCodeAt(0); return c >= 32 && c !== 127; }).join('').trim().slice(0, 280);
+              if (text) broadcastRoom(ws._cid, { type: 'chat', from: ws._handle, text, at: Date.now() });
+            }
           });
-          ws.on('close', () => { untrack(ws); broadcast({ type: 'presence', online: sockets.size }); });
+          ws.on('close', () => { leaveRoom(ws); untrack(ws); broadcast({ type: 'presence', online: sockets.size }); });
           ws.on('error', () => { /* ignore; close handler cleans up */ });
         });
       });
@@ -91,6 +122,13 @@ export function createRealtime({ secret, auth } = {}) {
       if (!set) return;
       const s = JSON.stringify(event);
       for (const ws of set) { try { ws.send(s); } catch { /* */ } }
+    },
+
+    /** Move a player's live connections into a constellation chat room (on join/create). */
+    setRoom(playerId, constellationId) {
+      const set = byPlayer.get(playerId);
+      if (!set) return;
+      for (const ws of set) joinRoom(ws, constellationId);
     },
 
     onlineCount() { return sockets.size; },

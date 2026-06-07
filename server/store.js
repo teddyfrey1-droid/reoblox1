@@ -218,6 +218,12 @@ export class MemoryStore {
     return id ? this.players.get(id) || null : null;
   }
 
+  /** Lightweight public read (handle + guild) for real-time routing. */
+  playerPublic(id) {
+    const p = this.players.get(id);
+    return p ? { handle: p.handle, constellationId: p.constellationId ?? null } : null;
+  }
+
   /* ------------------------------ IAP receipts ----------------------------- */
 
   /** Has this purchase transaction already been redeemed? (idempotency guard) */

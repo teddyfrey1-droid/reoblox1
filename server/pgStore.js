@@ -116,6 +116,18 @@ export class PgStore {
     return r.rows.length ? this.getPlayer(r.rows[0].player_id) : null;
   }
 
+  /** Lightweight public read (handle + guild) for real-time routing. */
+  async playerPublic(id) {
+    if (!isUuid(id)) return null;
+    const r = await this.db.query(
+      `SELECT p.handle, m.constellation_id AS cid
+       FROM players p LEFT JOIN constellation_members m ON m.player_id = p.id
+       WHERE p.id = $1`,
+      [id],
+    );
+    return r.rows.length ? { handle: r.rows[0].handle, constellationId: r.rows[0].cid || null } : null;
+  }
+
   /** Idempotency guard: has this purchase transaction already been redeemed? */
   async hasReceipt(transactionId) {
     const r = await this.db.query('SELECT 1 FROM iap_receipts WHERE transaction_id = $1', [transactionId]);
