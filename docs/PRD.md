@@ -109,7 +109,7 @@ complète sans blocage, signaux de rétention interne encourageants.
 | **Perf** | 60 fps sur mobile milieu de gamme ; *cold start* < 4 s ; API p95 < 150 ms |
 | **Fiabilité** | *crash-free* > 99 % ; opérations sensibles idempotentes ; dégradation gracieuse |
 | **Scalabilité** | Stateless API + Redis (chaud) + Postgres (durable) ; autoscale (cf. 11) |
-| **Sécurité** | Serveur autoritaire ; validation des intrants ; reçus IAP vérifiés/dédupliqués |
+| **Sécurité** | Serveur autoritaire ; auth par jeton (self-only) ; validation des intrants ; **rate limiting** (429+Retry-After) ; reçus IAP vérifiés/dédupliqués |
 | **Confidentialité** | RGPD/RGPD-K/COPPA ; *age-gating* ; export/suppression de compte |
 | **Accessibilité** | Daltonisme (forme+texte), réduction d'animations, mode calme, taille de texte |
 | **Localisation** | i18n dès le MVP ; 8–10 langues au soft launch |

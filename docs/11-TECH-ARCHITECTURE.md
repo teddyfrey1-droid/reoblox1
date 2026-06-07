@@ -86,10 +86,15 @@ flowchart LR
 
 ## Sécurité
 
-- **Auth** : OIDC/Sign in with Apple/Google + comptes *device*; sessions par **jetons signés**
-  (JWT court + refresh), rotation, révocation. (Le prototype stub l'auth par id en chemin.)
+- **Auth** : sessions par **jetons signés HS256** (`server/auth.js`) + flux invité par
+  appareil ; toute route portant un `:id` exige `token.sub === :id`. *À venir* : Apple/Google
+  OIDC, refresh tokens, rotation de clé.
+- **Rate limiting** : limiteur fenêtre fixe (`server/ratelimit.js`) — global par IP + bucket
+  strict sur les routes sensibles (auth/création de compte/achats) → `429` + `Retry-After`.
+  Activé sur le serveur ; per-process pour la *slice* (Redis INCR à l'échelle).
 - **Transport** : TLS partout ; *certificate pinning* côté client.
-- **Validation** : tout intrant validé côté serveur (le prototype valide déjà handle, items, fonds).
+- **Validation & limites** : tout intrant validé côté serveur (handle, items, fonds, offres
+  d'échange) ; corps de requête borné (413) ; codes 4xx typés (jamais de 500 pour faute client).
 - **Secrets** : *secret manager* (jamais en repo) ; le `.gitignore` exclut `.env`.
 - **IAP** : **validation serveur** des reçus (Apple/Google/Stripe) + **déduplication** par
   `transaction_id` (table `iap_receipts`) → jamais de double *grant*, anti-rejeu.

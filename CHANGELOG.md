@@ -2,6 +2,21 @@
 
 All notable changes to the LUMORA prototype are documented here.
 
+## [0.9.0] — Rate limiting (abuse / DoS protection)
+
+### Added
+- **Fixed-window rate limiter** (`server/ratelimit.js`, deterministic via injectable
+  clock): a global per-IP bucket plus a **stricter bucket for sensitive endpoints**
+  (auth/guest, account creation, IAP redeem). Exceeding a limit returns **429** with a
+  `Retry-After` header. Off by default in `createApp` (so tests/dev aren't throttled);
+  the running server enables it (`RATE_LIMIT_MAX` / `RATE_LIMIT_SENSITIVE_MAX`). The
+  Stripe webhook is exempt. Per-process for the slice (Redis at scale — docs/11).
+
+### Tests
+- `test/ratelimit.test.js` (3): limiter unit (allow→deny→reset, key isolation), global
+  429 + Retry-After, and the tighter sensitive-route limit firing while the global limit
+  is far from hit. Suite: 96 → **99**, all green; prototype unthrottled under normal use.
+
 ## [0.8.0] — Constellation chat (real-time guild rooms)
 
 ### Added
