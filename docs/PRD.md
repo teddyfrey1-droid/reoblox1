@@ -94,8 +94,8 @@ complète sans blocage, signaux de rétention interne encourageants.
   - ✅ Monde **pré-peuplé** pour éviter le vide au lancement (`server/scripts/demo.js`).
   - ✅ **Constellations** (créer/rejoindre, ≤30, score de bloom collectif) — testé.
   - ✅ **Échanges sécurisés** joueur-à-joueur (escrow atomique, taxe, verrouillage) — testé.
-  - ✅ **Temps réel** (WebSocket auth par jeton) : présence, ticks live du Great Bloom, notifications de visite — testé.
-  - ⬜ Amis/cadeaux ; chat de Constellation temps réel.
+  - ✅ **Temps réel** (WebSocket auth par jeton) : présence, ticks live du Great Bloom, notifications de visite, **chat de Constellation** (salons par guilde) — testé.
+  - ⬜ Amis/cadeaux ; modération de chat ; fan-out Redis multi-instances.
 
 ### EF-9 — Monde partagé (Great Bloom)
 - **Critères d'acceptation :**

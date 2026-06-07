@@ -162,7 +162,8 @@ pour les deux (`server/store.js` choisi par défaut, `server/pgStore.js` si `DAT
   l'échelle multi-instances. Correct pour la *slice* mono-processus.
 - ~~Pas de temps réel/WebSocket~~ → **fait** : hub WebSocket (`server/realtime.js`, lib `ws`
   en dépendance *optionnelle*) — présence, **ticks live du Great Bloom**, notifications de
-  visite personnelles ; auth par jeton sur `/ws?token=` (même clé que le REST). Dégrade en
-  *no-op* si `ws` absent (le REST n'est pas affecté). *À venir* : chat de Constellation,
-  *fan-out* via Redis pub/sub pour le multi-instances, *ticket* court-vécu au lieu du token en URL.
+  visite personnelles **et chat de Constellation** (salons routés par guilde) ; auth par jeton
+  sur `/ws?token=` (même clé que le REST). Dégrade en *no-op* si `ws` absent (le REST n'est pas
+  affecté). *À venir* : *fan-out* via Redis pub/sub pour le multi-instances, *ticket*
+  court-vécu au lieu du token en URL, modération de chat.
 - Génome v1 (`schema:1`) versionné → migrations gérées par le champ `schema`.

@@ -2,6 +2,22 @@
 
 All notable changes to the LUMORA prototype are documented here.
 
+## [0.8.0] — Constellation chat (real-time guild rooms)
+
+### Added
+- **Guild chat** over the existing WebSocket hub: clients send `{type:'chat', text}`
+  and the message is routed only to co-members of the sender's constellation. Rooms
+  are resolved on connect (from the store) and updated live via `setRoom` when a player
+  creates/joins a guild while connected. Non-members get a `NO_GUILD` error; text is
+  sanitised (control chars stripped, 280-char cap).
+- `store.playerPublic(id)` — a lightweight handle+guild read for chat routing (both
+  stores). The web prototype toasts incoming chat (defensive; no new UI required).
+
+### Tests
+- `test/realtime.test.js` +2: chat reaches co-members only (covering both connect-time
+  room resolution AND `setRoom` on a live socket), and chat without a guild errors.
+  Suite: 94 → **96**, all green.
+
 ## [0.7.0] — Real payment verification (Stripe webhook + Apple/Google transport)
 
 ### Added
