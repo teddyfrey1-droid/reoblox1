@@ -165,6 +165,11 @@ pour les deux (`server/store.js` choisi par défaut, `server/pgStore.js` si `DAT
 - Compteur mondial (Great Bloom) **et** plafond quotidien de visites en mémoire de processus
   (dernier-écrivain-gagne au commit) → atomiser via Redis (INCR) / contraintes SQL dédiées à
   l'échelle multi-instances. Correct pour la *slice* mono-processus.
+- **Concurrence par joueur (PgStore)** : `_commit` réécrit le joueur chargé en entier
+  (dernier-écrivain-gagne), donc deux requêtes *simultanées* sur le **même** joueur peuvent
+  perdre une mise à jour (sous-comptage, jamais de double-crédit — la **réservation atomique
+  de reçu** garantit qu'un achat n'est crédité qu'une fois). À durcir par verrouillage de
+  ligne (`SELECT … FOR UPDATE`) ou concurrence optimiste (colonne `version`) en production.
 - ~~Pas de temps réel/WebSocket~~ → **fait** : hub WebSocket (`server/realtime.js`, lib `ws`
   en dépendance *optionnelle*) — présence, **ticks live du Great Bloom**, notifications de
   visite personnelles **et chat de Constellation** (salons routés par guilde) ; auth par jeton

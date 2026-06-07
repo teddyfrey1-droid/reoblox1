@@ -2,6 +2,39 @@
 
 All notable changes to the LUMORA prototype are documented here.
 
+## [0.9.1] — Security-review fixes (money correctness + auth hardening)
+
+Fixes from a two-pass security review of the auth/payments/real-time/rate-limit code.
+
+### Fixed (money correctness)
+- **No double-grant under concurrency**: replaced the check-then-act `hasReceipt`/
+  `recordReceipt` with a single **atomic `claimReceipt`** (sync compare-and-set for
+  MemoryStore; `INSERT … ON CONFLICT DO NOTHING RETURNING` for PgStore). The grant
+  only runs if the claim is new, so concurrent redeems / overlapping webhook retries
+  credit exactly once.
+- **Stripe dedupe by payment, not event id**: one Checkout purchase emits both
+  `checkout.session.completed` and `payment_intent.succeeded`; keying on the
+  PaymentIntent id collapses them to a single grant.
+
+### Fixed (auth / abuse hardening)
+- Rate-limit IP keying now only trusts `X-Forwarded-For` when `trustProxy` is set
+  (else the socket address) — closes a header-spoofing bypass / shared-bucket DoS.
+- Tokens must carry `exp` (no never-expiring tokens); `bearerToken` accepts the
+  scheme case-insensitively (RFC 6750). `server/index.js` refuses to boot in
+  `NODE_ENV=production` without `JWT_SIGNING_KEY` (no silent ephemeral key).
+
+### Notes
+- Documented the remaining PgStore per-player concurrency limitation (last-writer-wins
+  on commit → possible lost update, never double-credit) — fix via row locking /
+  optimistic concurrency at scale.
+- Verified sound (no change needed): JWT has no alg-confusion, timing-safe compares,
+  Stripe signature over the raw body, WS auth-before-accept, server-authoritative chat
+  rooms (`from` can't be spoofed), provider-authoritative IAP values.
+
+### Tests
+- +2 (concurrent redeem credits once; one purchase → two Stripe events → one grant).
+  Suite: 99 → **101**, all green.
+
 ## [0.9.0] — Rate limiting (abuse / DoS protection)
 
 ### Added
