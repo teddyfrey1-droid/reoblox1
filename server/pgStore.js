@@ -68,7 +68,7 @@ export class PgStore {
    * @param {string} method @param {() => any} fn
    */
   withRequest(method, fn) {
-    return this.als.run({ players: new Map(), cons: new Map(), trades: new Map(), identities: [], receipts: [] }, async () => {
+    return this.als.run({ players: new Map(), cons: new Map(), trades: new Map(), identities: [] }, async () => {
       const result = await fn();
       if (method === 'POST') await this._commit();
       return result;
@@ -128,16 +128,22 @@ export class PgStore {
     return r.rows.length ? { handle: r.rows[0].handle, constellationId: r.rows[0].cid || null } : null;
   }
 
-  /** Idempotency guard: has this purchase transaction already been redeemed? */
-  async hasReceipt(transactionId) {
-    const r = await this.db.query('SELECT 1 FROM iap_receipts WHERE transaction_id = $1', [transactionId]);
+  /**
+   * Atomically claim a purchase transaction. The unique `transaction_id` constraint
+   * makes this race-proof: under concurrent redeems / overlapping webhook retries,
+   * exactly one INSERT succeeds (RETURNING a row) and the rest see the conflict and
+   * get `false`. Committed immediately (its own statement), so the claim can't be
+   * lost if the later wallet commit fails (worst case: an auditable receipt with no
+   * grant, recoverable by reconciliation — never a double-grant).
+   */
+  async claimReceipt(receipt) {
+    const r = await this.db.query(
+      `INSERT INTO iap_receipts (player_id, platform, product_id, transaction_id, price_usd_cents, granted_lumen, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'verified')
+       ON CONFLICT (transaction_id) DO NOTHING RETURNING id`,
+      [receipt.playerId, receipt.platform, receipt.productId, receipt.transactionId, receipt.priceUsdCents ?? null, receipt.grantedLumen ?? null],
+    );
     return r.rows.length > 0;
-  }
-
-  /** Queue a verified receipt; persisted in commit (unique transaction_id dedupes). */
-  recordReceipt(receipt) {
-    const ctx = this._ctx();
-    if (ctx) ctx.receipts.push(receipt);
   }
 
   /** Mutate-only (no DB): push to collection and nudge the shared world. */
@@ -365,15 +371,6 @@ export class PgStore {
           `INSERT INTO auth_identities (player_id, provider, subject) VALUES ($1, $2, $3)
            ON CONFLICT (provider, subject) DO NOTHING`,
           [idn.playerId, idn.provider, idn.subject],
-        );
-      }
-      // IAP receipts (unique transaction_id is the durable double-redeem guard).
-      for (const rc of ctx.receipts) {
-        await q(
-          `INSERT INTO iap_receipts (player_id, platform, product_id, transaction_id, price_usd_cents, granted_lumen, status)
-           VALUES ($1, $2, $3, $4, $5, $6, 'verified')
-           ON CONFLICT (transaction_id) DO NOTHING`,
-          [rc.playerId, rc.platform, rc.productId, rc.transactionId, rc.priceUsdCents ?? null, rc.grantedLumen ?? null],
         );
       }
       for (const c of ctx.cons.values()) await this._saveConstellation(q, c);

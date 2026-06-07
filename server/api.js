@@ -82,6 +82,7 @@ export function createApp(store = new MemoryStore(), opts = {}) {
     ? createRateLimiter({ windowMs: opts.rateLimit.windowMs || 60_000, max: opts.rateLimit.sensitiveMax || Math.max(5, Math.floor((opts.rateLimit.max || 300) / 10)) })
     : null;
   const SENSITIVE = [/^\/api\/auth\/guest\/?$/, /^\/api\/players\/?$/, /^\/api\/players\/[^/]+\/iap\/redeem\/?$/];
+  const trustProxy = !!opts.trustProxy; // only then is X-Forwarded-For trusted for IP keying
 
   /** @type {Array<{method:string, re:RegExp, fn:Function, requiresSelf:boolean}>} */
   const routes = [];
@@ -152,16 +153,22 @@ export function createApp(store = new MemoryStore(), opts = {}) {
     const md = obj.metadata || {};
     const product = productById(md.productId);
     if (!md.playerId || !product) return { received: true, ignored: 'missing/invalid metadata' };
-    // Idempotency: dedupe by the Stripe event id (replays never double-grant).
-    if (await store.hasReceipt(event.id)) return { received: true, duplicate: true };
+    // Dedupe by the underlying PAYMENT, not the event id: one Checkout purchase emits
+    // BOTH checkout.session.completed AND payment_intent.succeeded — keying on the
+    // PaymentIntent id makes them collapse to a single grant.
+    const paymentKey = event.type === 'checkout.session.completed' ? (obj.payment_intent || obj.id) : obj.id;
+    if (!paymentKey) return { received: true, ignored: 'no payment id' };
     let player;
     try {
       player = await store.getPlayer(md.playerId);
     } catch {
       return { received: true, ignored: 'unknown player' }; // 200 so Stripe stops retrying
     }
-    const grantedLumen = grantProduct(player, product);
-    store.recordReceipt({ transactionId: event.id, platform: 'stripe', productId: product.id, playerId: player.id, priceUsdCents: product.usdCents, grantedLumen });
+    // Atomic claim → idempotent across replays AND the two event types for one purchase.
+    const intendedLumen = product.kind === 'lumen' ? product.lumen : 0;
+    const claimed = await store.claimReceipt({ transactionId: paymentKey, platform: 'stripe', productId: product.id, playerId: player.id, priceUsdCents: product.usdCents, grantedLumen: intendedLumen });
+    if (!claimed) return { received: true, duplicate: true };
+    grantProduct(player, product);
     return { received: true, granted: product.id, playerId: player.id };
   }
 
@@ -446,12 +453,14 @@ export function createApp(store = new MemoryStore(), opts = {}) {
     const now = Date.now();
     // Trust the provider-AUTHORITATIVE product/transaction, not the client's claim.
     const txId = verified.transactionId;
-    if (await store.hasReceipt(txId)) {
+    const product = productById(verified.productId);
+    // Atomically CLAIM before granting → no double-credit under concurrent redeems.
+    const intendedLumen = product.kind === 'lumen' ? product.lumen : 0;
+    const claimed = await store.claimReceipt({ transactionId: txId, platform, productId: product.id, playerId: player.id, priceUsdCents: product.usdCents, grantedLumen: intendedLumen });
+    if (!claimed) {
       return { alreadyRedeemed: true, wallet: player.wallet, subscription: subscriptionView(player.subscription, now) };
     }
-    const product = productById(verified.productId);
     const grantedLumen = grantProduct(player, product);
-    store.recordReceipt({ transactionId: txId, platform, productId: product.id, playerId: player.id, priceUsdCents: product.usdCents, grantedLumen });
     return {
       redeemed: true, product: product.id, grantedLumen,
       wallet: player.wallet, subscription: subscriptionView(player.subscription, now),
@@ -577,7 +586,7 @@ export function createApp(store = new MemoryStore(), opts = {}) {
       try {
         // Rate limiting (when enabled): global per-IP + a stricter bucket for sensitive routes.
         if (limiter) {
-          const ip = clientIp(req);
+          const ip = clientIp(req, trustProxy);
           const g = limiter.hit(ip);
           const s = SENSITIVE.some((re) => re.test(url.pathname)) ? sensitiveLimiter.hit('s:' + ip) : { allowed: true, retryAfterMs: 0 };
           if (!g.allowed || !s.allowed) {
@@ -657,14 +666,15 @@ function clampNum(raw, min, max, dflt) {
   return Math.max(min, Math.min(max, n));
 }
 
-/** Best-effort client IP for rate-limit keying. Trust XFF only behind a known proxy
- *  in production; here we prefer the socket address and fall back to the first XFF hop. */
-function clientIp(req) {
-  const sock = req.socket && req.socket.remoteAddress;
-  if (sock) return sock;
-  const xff = req.headers['x-forwarded-for'];
-  if (xff) return String(xff).split(',')[0].trim();
-  return 'unknown';
+/** Client IP for rate-limit keying. Only trust X-Forwarded-For when explicitly behind
+ *  a known proxy (opts.trustProxy) — otherwise it is attacker-controlled and would let
+ *  a caller rotate the header to bypass the limiter. Default: the socket address. */
+function clientIp(req, trustProxy) {
+  if (trustProxy) {
+    const xff = req.headers['x-forwarded-for'];
+    if (xff) return String(xff).split(',')[0].trim();
+  }
+  return (req.socket && req.socket.remoteAddress) || 'unknown';
 }
 
 function setCors(res) {

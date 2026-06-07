@@ -59,10 +59,15 @@ async function api(path, method = 'GET', body, rawHeaders) {
 }
 const newPlayer = async (h) => (await api('/api/players', 'POST', { handle: h })).data.player;
 
-function stripeEvent(id, playerId, productId, type = 'payment_intent.succeeded') {
-  const raw = JSON.stringify({ id, type, data: { object: { metadata: { playerId, productId } } } });
+function stripeEvent(id, playerId, productId, type = 'payment_intent.succeeded', paymentId) {
+  const pi = paymentId || `pi_${id}`;
+  const object = type === 'checkout.session.completed'
+    ? { id: `cs_${id}`, payment_intent: pi, metadata: { playerId, productId } }
+    : { id: pi, metadata: { playerId, productId } };
+  const raw = JSON.stringify({ id, type, data: { object } });
   return { raw, header: stripeSignatureHeader(raw, STRIPE_SECRET) };
 }
+const webhook = (e) => api('/api/webhooks/stripe', 'POST', e.raw, { 'Stripe-Signature': e.header, 'Content-Type': 'application/json' });
 
 test('Stripe webhook grants once and is idempotent on replay', async () => {
   const p = await newPlayer('stripe_buyer');
@@ -76,6 +81,19 @@ test('Stripe webhook grants once and is idempotent on replay', async () => {
   // Replay the exact same event → deduped, no double-credit.
   const replay = await api('/api/webhooks/stripe', 'POST', raw, { 'Stripe-Signature': header, 'Content-Type': 'application/json' });
   assert.equal(replay.data.duplicate, true);
+  assert.equal((await api(`/api/players/${p.id}`)).data.player.wallet.lumen, 50 + 500);
+});
+
+test('one Checkout purchase emits two events but grants exactly once', async () => {
+  const p = await newPlayer('stripe_two');
+  const pi = 'pi_shared_purchase';
+  // Both event types for the SAME PaymentIntent.
+  const r1 = await webhook(stripeEvent('evt_cs', p.id, 'lumen_pouch', 'checkout.session.completed', pi));
+  const r2 = await webhook(stripeEvent('evt_pi', p.id, 'lumen_pouch', 'payment_intent.succeeded', pi));
+  const granted = [r1, r2].filter((r) => r.data.granted).length;
+  const dup = [r1, r2].filter((r) => r.data.duplicate).length;
+  assert.equal(granted, 1, 'exactly one of the two events grants');
+  assert.equal(dup, 1, 'the other is deduped by payment id');
   assert.equal((await api(`/api/players/${p.id}`)).data.player.wallet.lumen, 50 + 500);
 });
 

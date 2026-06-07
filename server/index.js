@@ -41,7 +41,13 @@ if (process.env.DATABASE_URL) {
 // restarts and span instances; without it we use a random per-process key (dev only).
 // The SAME key signs/verifies both REST tokens and WebSocket (/ws?token=) auth.
 if (!process.env.JWT_SIGNING_KEY) {
-  console.warn('  ⚠ JWT_SIGNING_KEY not set — using an ephemeral key (tokens reset on restart).');
+  // In production an ephemeral key breaks multi-instance auth (tokens won't validate
+  // across instances) and resets on restart — refuse to boot rather than fail silently.
+  if (process.env.NODE_ENV === 'production') {
+    console.error('  ✗ JWT_SIGNING_KEY is required in production (set a stable 32-byte hex key).');
+    process.exit(1);
+  }
+  console.warn('  ⚠ JWT_SIGNING_KEY not set — using an ephemeral key (tokens reset on restart; dev only).');
 }
 const secret = process.env.JWT_SIGNING_KEY || randomBytes(32).toString('hex');
 const realtime = createRealtime({ secret, store }); // store enables constellation-chat routing
@@ -49,6 +55,9 @@ const server = createServer(createApp(store, {
   requireAuth: true,
   secret,
   realtime,
+  // Behind a load balancer/CDN, set TRUST_PROXY=1 so the limiter keys on the real
+  // client IP (X-Forwarded-For) instead of the proxy's single address.
+  trustProxy: process.env.TRUST_PROXY === '1',
   // Abuse protection: 300 req/min/IP globally, tighter on sensitive endpoints.
   rateLimit: {
     windowMs: 60_000,

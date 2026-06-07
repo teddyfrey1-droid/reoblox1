@@ -95,6 +95,17 @@ test('redeeming the same transaction twice never double-credits (idempotent)', a
   assert.equal(third.data.wallet.lumen, 50 + 1000);
 });
 
+test('concurrent redeems of one transaction credit only once (no TOCTOU double-grant)', async () => {
+  const p = await newPlayer('iap_race');
+  const fire = () => redeem(p.id, 'lumen_pouch', 'race-tx-1');
+  const results = await Promise.all([fire(), fire(), fire(), fire(), fire()]);
+  const redeemed = results.filter((r) => r.data.redeemed).length;
+  const already = results.filter((r) => r.data.alreadyRedeemed).length;
+  assert.equal(redeemed, 1, 'exactly one concurrent request grants');
+  assert.equal(already, 4, 'the rest see alreadyRedeemed');
+  assert.equal((await api(`/api/players/${p.id}`)).data.player.wallet.lumen, 50 + 500, 'credited once');
+});
+
 test('a forged/invalid receipt is rejected (402) and unknown product (400)', async () => {
   const p = await newPlayer('iap_bad');
   const forged = await api(`/api/players/${p.id}/iap/redeem`, 'POST', {

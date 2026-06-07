@@ -68,7 +68,8 @@ export function createAuth(secret) {
     } catch {
       throw new GameError('BAD_TOKEN', 'Malformed payload', 401);
     }
-    if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) {
+    // Require an expiry and enforce it (defence-in-depth: never honour a no-exp token).
+    if (!payload.exp || Math.floor(Date.now() / 1000) > payload.exp) {
       throw new GameError('TOKEN_EXPIRED', 'Session expired', 401);
     }
     if (!payload.sub) throw new GameError('BAD_TOKEN', 'Token missing subject', 401);
@@ -85,7 +86,8 @@ export function createAuth(secret) {
  */
 export function bearerToken(req) {
   const h = req.headers['authorization'] || '';
-  const m = /^Bearer (.+)$/.exec(Array.isArray(h) ? h[0] : h);
+  // RFC 6750: the scheme is case-insensitive; tolerate extra whitespace.
+  const m = /^Bearer[ \t]+(.+)$/i.exec((Array.isArray(h) ? h[0] : h).trim());
   if (!m) throw new GameError('NO_TOKEN', 'Authorization: Bearer <token> required', 401);
-  return m[1];
+  return m[1].trim();
 }

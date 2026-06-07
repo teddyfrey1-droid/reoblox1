@@ -226,14 +226,16 @@ export class MemoryStore {
 
   /* ------------------------------ IAP receipts ----------------------------- */
 
-  /** Has this purchase transaction already been redeemed? (idempotency guard) */
-  hasReceipt(transactionId) {
-    return this.receipts.has(transactionId);
-  }
-
-  /** Record a verified receipt so it can never be redeemed again. */
-  recordReceipt(receipt) {
+  /**
+   * Atomically claim a purchase transaction: returns true if it was newly claimed
+   * (caller should grant), false if already redeemed (caller must NOT grant). The
+   * check-and-set is synchronous, so it is atomic w.r.t. the event loop — two
+   * concurrent redeems of the same transaction can never both claim it.
+   */
+  claimReceipt(receipt) {
+    if (this.receipts.has(receipt.transactionId)) return false;
     this.receipts.add(receipt.transactionId);
+    return true;
   }
 
   getWorld() {
